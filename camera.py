@@ -1,3 +1,5 @@
+from random import randrange
+from time import sleep
 import pyrealsense2 as rs
 from realsense.realsense_device_manager import DeviceManager
 import cv2
@@ -14,15 +16,19 @@ if __name__ == "__main__":
       config.enable_stream(rs.stream.infrared, 1, 1280, 800, rs.format.y8, 30)
       device_manager = DeviceManager(rs.context(), config)
       device_manager.enable_all_devices()
-      for k in range(15):
+      frames = []
+      for k in range(5):
           frames = device_manager.poll_frames()
-      print(frames)
-      a = frames['001622070721', 'D400']
-      b = list(a.values())[0]
-      c = b.get_data()
-      print( c )
-      write_to_file(c)
-      print("Done")
+          print(frames)
+          frame_id = randrange(1000)
+          for camera_id in frames:
+            frame = frames[camera_id]
+            frame_value = list(frame.values())[0]
+            frame_data = frame_value.get_data()
+            print( frame_data )
+            write_to_file(frame_data, f'output_{frame_id}_cid_{camera_id[0][-3:]}.png')
+          print("Done")
+          sleep(10)
     finally:
       if (device_manager):
         device_manager.disable_streams()
