@@ -1,7 +1,7 @@
 from typing import Dict, List
 from building import Building
 from detection import detect_markers
-from hud import draw_status_window
+from hud import draw_monitor_window, draw_status_window
 from image import buffer_to_array, sharpen_and_rotate_image
 import pyrealsense2 as rs
 import numpy as np
@@ -173,27 +173,14 @@ while True:
                                 else:
                                     buildingDict[markerID].updatePosition(pos, loopcount)
 
-                    ir_image = aruco.drawDetectedMarkers(ir_image, corners, borderColor = (0,255,0))
-                    ir_image = aruco.drawDetectedMarkers(ir_image, rejectedImgPoints, borderColor = (0,0,255))
-
                     try:
                         send_detected_buildings(conn, buildingDict, lastSentTime)
                         lastSentTime = time.time()
                     except:
                         break
-                    
-                    for i in range(0,ir_image.shape[0], 50):
-                            ir_image = cv2.line(ir_image,(0,i), (ir_image.shape[1], i), (255,255,255), 1)
-                            i += 10
-                    for j in range(0,ir_image.shape[1],50):
-                            ir_image = cv2.line(ir_image,(j,0), (j,ir_image.shape[1]), (255,255,255), 1)
-                            j += 10
 
-                    cv2.namedWindow('IR', cv2.WINDOW_AUTOSIZE)
-                    cv2.imshow('IR', ir_image)
-
+                    draw_monitor_window(ir_image,corners, rejectedImgPoints)
                     draw_status_window(buildingDict)
-
 
                     key = cv2.waitKeyEx(1)
 
