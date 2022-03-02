@@ -1,3 +1,5 @@
+from typing import Dict
+from Building import Building
 from detection import detect_markers
 from image import buffer_to_array, sharpen_and_rotate_image
 import pyrealsense2 as rs
@@ -8,14 +10,13 @@ import time
 import math
 import json
 import socket
-import random
 
 
 font = cv2.FONT_HERSHEY_SIMPLEX
 kernel = np.array([[-1,-1,-1],
                     [-1, 9,-1],
                     [-1,-1,-1]])
-buildingDict = {}
+buildingDict:Dict[int,Building] = {}
 
 loop = 16
 exposure = 8000
@@ -24,31 +25,6 @@ selectedPoint = 0
 #[width, height]
 pts_src = np.array([[0, 0], [0, 800], [1280, 0],[1280, 800]])
 pts_dst = np.array([[0, 0], [0, 1000], [1000, 0],[1000, 1000]])
-
-
-
-class building:
-    def __init__(self, id, pos, lastSeen):
-        self.id = id
-        self.pos = pos
-        self.confidence = 0
-        self.lastSeen = lastSeen
-
-    def updateConfidence(self, currentLoop):
-        self.confidence = currentLoop -self.lastSeen
-
-    def updatePosition(self,pos):
-        self.pos = pos
-        self.lastSeen = loopcount
-
-    def getConfidence(self):
-        return self.confidence
-
-    def getPos(self):
-        return self.pos
-
-    def getID(self):
-        return self.id
 
 
 def rotate(xy, theta):
@@ -193,10 +169,10 @@ while True:
                                 pos = normalizeCorners(corners[i])
 
                                 if markerID not in buildingDict:
-                                    buildingDict[markerID] = building(int(ids[i]), pos, loopcount)
+                                    buildingDict[markerID] = Building(int(ids[i]), pos, loopcount)
 
                                 else:
-                                    buildingDict[markerID].updatePosition(pos)
+                                    buildingDict[markerID].updatePosition(pos, loopcount)
 
 
                     status = np.zeros((800,320,3), np.uint8)
