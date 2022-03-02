@@ -1,6 +1,7 @@
 from typing import Dict, List
 from building import Building
 from detection import detect_markers
+from hud import draw_status_window
 from image import buffer_to_array, sharpen_and_rotate_image
 import pyrealsense2 as rs
 import numpy as np
@@ -11,8 +12,6 @@ import math
 import json
 import socket
 
-
-font = cv2.FONT_HERSHEY_SIMPLEX
 kernel = np.array([[-1,-1,-1],
                     [-1, 9,-1],
                     [-1,-1,-1]])
@@ -160,10 +159,6 @@ while True:
                         if buildingDict[x].getConfidence() > 5: #if not found after 5 loops, discard
                             buildingDict.pop(x)
                     ir_image = sharpen_and_rotate_image(buffer_to_array(ir_data.get_data()))
-
-
-                    # ir_image = np.hstack((ir_image,ir_image))
-                    # ir_image = np.vstack((ir_image,ir_image))
                     corners, ids, rejectedImgPoints  = detect_markers(ir_image)
 
                     if ids is not None:
@@ -178,8 +173,6 @@ while True:
                                 else:
                                     buildingDict[markerID].updatePosition(pos, loopcount)
 
-
-                    status = np.zeros((800,320,3), np.uint8)
                     ir_image = aruco.drawDetectedMarkers(ir_image, corners, borderColor = (0,255,0))
                     ir_image = aruco.drawDetectedMarkers(ir_image, rejectedImgPoints, borderColor = (0,0,255))
 
@@ -188,9 +181,6 @@ while True:
                         lastSentTime = time.time()
                     except:
                         break
-
-
-                    statusX = 50
                     
                     for i in range(0,ir_image.shape[0], 50):
                             ir_image = cv2.line(ir_image,(0,i), (ir_image.shape[1], i), (255,255,255), 1)
@@ -198,23 +188,11 @@ while True:
                     for j in range(0,ir_image.shape[1],50):
                             ir_image = cv2.line(ir_image,(j,0), (j,ir_image.shape[1]), (255,255,255), 1)
                             j += 10
-                            
-                    for x in buildingDict:
-                        ctr = buildingDict[x].getPos()[0]
-                        deg = buildingDict[x].getPos()[1]
-                        id = buildingDict[x].getID()
-                        conf = buildingDict[x].getConfidence()
-
-                        cv2.putText(status, str(id), (30, statusX), font,0.8,(255,255,255),1)
-                        cv2.putText(status, str(ctr),(100,statusX),font,0.6,(255,255,255),1)
-                        cv2.putText(status, str(int(deg * 180/3.14)),(220,statusX),font,0.6,(255,255,255),1)
-                        cv2.putText(status, str(conf),(300,statusX),font,0.6,(255,255,255),1)
-                        statusX += 35
 
                     cv2.namedWindow('IR', cv2.WINDOW_AUTOSIZE)
-                    cv2.namedWindow('Status', cv2.WINDOW_AUTOSIZE)
                     cv2.imshow('IR', ir_image)
-                    cv2.imshow('Status', status)
+
+                    draw_status_window(buildingDict)
 
 
                     key = cv2.waitKeyEx(1)
