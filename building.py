@@ -1,5 +1,8 @@
+from typing import List
+
+
 class Building:
-    def __init__(self, id, pos, lastSeen):
+    def __init__(self, id:int, pos:List[float], lastSeen:int):
         self.id = id
         self.pos = pos
         self.confidence = 0

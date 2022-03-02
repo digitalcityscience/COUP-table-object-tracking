@@ -1,5 +1,5 @@
-from typing import Dict
-from Building import Building
+from typing import Dict, List
+from building import Building
 from detection import detect_markers
 from image import buffer_to_array, sharpen_and_rotate_image
 import pyrealsense2 as rs
@@ -49,7 +49,7 @@ def printJSON(data):
     parentDict["table_state"] = jsonDict
     return jsonDict
 
-def normalizeCorners(corner):
+def normalizeCorners(corner) -> List[float]:
     coords = corner
     pts = coords.reshape((-1,1,2))
 
@@ -68,8 +68,7 @@ def normalizeCorners(corner):
     ctrX = np.interp(ctrX,[0,10000],[0,10000])
     ctrY = np.interp(ctrY,[0,10000],[0,10000])
 
-    returnData = [int(ctrX),int(ctrY), angleDeg]
-    return returnData
+    return [int(ctrX), int(ctrY), angleDeg]
 
 def handleKeypress(key):
     if key == 2424832:
@@ -170,7 +169,6 @@ while True:
 
                                 if markerID not in buildingDict:
                                     buildingDict[markerID] = Building(int(ids[i]), pos, loopcount)
-
                                 else:
                                     buildingDict[markerID].updatePosition(pos, loopcount)
 
