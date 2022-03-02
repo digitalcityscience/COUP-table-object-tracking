@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 import cv2.aruco as aruco
 
 aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_250)
@@ -18,7 +18,7 @@ parameters.polygonalApproxAccuracyRate = 0.03
 # parameters.adaptiveThreshConstant = 7
 
 
-DetectionResult = Tuple[str, list[int], List]
+DetectionResult = Tuple[str, List[int], List]
 
 
 def detect_markers(ir_image: List) -> DetectionResult:
