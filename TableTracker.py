@@ -117,6 +117,12 @@ PORT = 8052        # Port to listen on (non-privileged ports are > 1023)
 wheelPosX = 0
 wheelPosY = 0
 
+
+def send_detected_buildings(socket:socket.socket, buildingDict:Dict[int,Building], last_send_time:float) -> None:
+    if (time.time() - last_send_time) > 0.05:
+        jsonString= json.dumps(printJSON(buildingDict))
+        socket.sendall(jsonString.encode('utf-8'))
+
 while True:
     print("starting socket")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -177,23 +183,11 @@ while True:
                     ir_image = aruco.drawDetectedMarkers(ir_image, corners, borderColor = (0,255,0))
                     ir_image = aruco.drawDetectedMarkers(ir_image, rejectedImgPoints, borderColor = (0,0,255))
 
-                    for i in buildingDict:
-                        id = buildingDict[i].getID()
-                        pos =  buildingDict[i].getPos()
-                        angle = pos[1]
-                        ctr = pos[0]
-
-                    if (time.time() - lastSentTime) > 0.05:
+                    try:
+                        send_detected_buildings(conn, buildingDict, lastSentTime)
                         lastSentTime = time.time()
-
-                        jsonString= json.dumps(printJSON(buildingDict))
-                        #print(jsonString)
-                        b = jsonString.encode('utf-8')
-                        lastSentTime = time.time()
-                        try:
-                            conn.sendall(b)
-                        except:
-                            break
+                    except:
+                        break
 
 
                     statusX = 50
@@ -250,5 +244,7 @@ while True:
             s.close()
             print("conn was aparrently closed!")
                     
+
+
 
 
