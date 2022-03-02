@@ -1,3 +1,4 @@
+from image import buffer_to_array, sharpen_and_rotate_image
 import pyrealsense2 as rs
 import numpy as np
 import cv2
@@ -176,14 +177,7 @@ while True:
                         buildingDict[x].updateConfidence(loopcount)
                         if buildingDict[x].getConfidence() > 5: #if not found after 5 loops, discard
                             buildingDict.pop(x)
-
-
-                    ir_image = np.asanyarray(ir_data.get_data())
-                    #ir_image = ir_image[0:1000, 0:1000]
-                    ir_image = cv2.cvtColor(ir_image,cv2.COLOR_GRAY2BGR)
-                    ir_image = cv2.filter2D(ir_image, -1, kernel)
-                    h, state = cv2.findHomography(pts_src, pts_dst)
-                    ir_image = cv2.warpPerspective(ir_image, h, (1000, 1000))
+                    ir_image = sharpen_and_rotate_image(buffer_to_array(ir_data.get_data()))
 
                     aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_250)
                     parameters = aruco.DetectorParameters_create()

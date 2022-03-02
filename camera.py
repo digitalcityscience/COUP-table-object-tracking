@@ -1,12 +1,8 @@
 from random import randrange
 from time import sleep
+from image import write_to_file
 import pyrealsense2 as rs
 from realsense.realsense_device_manager import DeviceManager
-import cv2
-import numpy
-
-def write_to_file(buffer, file_name:str = "output.png"):
-  cv2.imwrite(f'./output/{file_name}', numpy.asanyarray(buffer))
 
 
 if __name__ == "__main__":
