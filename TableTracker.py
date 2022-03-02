@@ -1,7 +1,7 @@
 from typing import Dict, List
 from building import Building
 from detection import detect_markers
-from hud import draw_monitor_window, draw_status_window
+from hud import draw_monitor_window, draw_status_window, handle_key_presses
 from image import buffer_to_array, sharpen_and_rotate_image
 import pyrealsense2 as rs
 import numpy as np
@@ -19,12 +19,6 @@ buildingDict:Dict[int,Building] = {}
 
 loop = 16
 exposure = 8000
-selectedPoint = 0
-
-#[width, height]
-pts_src = np.array([[0, 0], [0, 800], [1280, 0],[1280, 800]])
-pts_dst = np.array([[0, 0], [0, 1000], [1000, 0],[1000, 1000]])
-
 
 def rotate(xy, theta):
     # https://en.wikipedia.org/wiki/Rotation_matrix#In_two_dimensions
@@ -69,22 +63,6 @@ def normalizeCorners(corner) -> List[float]:
 
     return [int(ctrX), int(ctrY), angleDeg]
 
-def handleKeypress(key):
-    if key == 2424832:
-        print("left")
-        pts_src[selectedPoint, 0] += 1
-    if key == 2490368:
-        print("up")
-        pts_src[selectedPoint, 1] += 1
-    if key == 2555904:
-        print("right")
-        pts_src[selectedPoint, 0] -= 1
-    if key == 2621440:
-        print("down")
-        pts_src[selectedPoint, 1] -= 1
-
-
-
 #Realsense Config
 #--------------------------------------------
 pipeline = rs.pipeline()
@@ -105,9 +83,6 @@ frames = pipeline.wait_for_frames()
 loopcount = 0
 lastUpdatedTime = time.time()
 lastSentTime = time.time()
-
-pts_src = np.loadtxt(open("homography.txt"))
-print("Homography loaded")
 
 
 HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
@@ -181,31 +156,7 @@ while True:
 
                     draw_monitor_window(ir_image,corners, rejectedImgPoints)
                     draw_status_window(buildingDict)
-
-                    key = cv2.waitKeyEx(1)
-
-                    if key == 32:
-                            print("Homography dumped") 
-                            np.savetxt("homography.txt", pts_src, fmt="%s")
-
-                    if key == ord('l'):
-                        pts_src = np.loadtxt(open("homography.txt"))
-                        print("Homography loaded")
-                    if key == ord('1'):
-                        selectedPoint = 0
-                        print("point 1")
-                    if key == ord('2'):
-                        selectedPoint = 1
-                        print("point 2")
-                    if key == ord('3'):
-                        selectedPoint = 2
-                        print("point 3")
-                    if key == ord('4'):
-                        selectedPoint = 3
-                        print("point 4")
-                    elif key is not -1:
-                            handleKeypress(key)
-
+                    handle_key_presses()
             s.close()
             print("conn was aparrently closed!")
                     

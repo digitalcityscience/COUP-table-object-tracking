@@ -52,3 +52,49 @@ def draw_monitor_window(ir_image, corners, rejectedImgPoints) -> None:
 
     cv2.namedWindow("IR", cv2.WINDOW_AUTOSIZE)
     cv2.imshow("IR", ir_image)
+
+
+#[width, height]
+pts_src = numpy.loadtxt(open("homography.txt"))
+if(pts_src is None):
+  pts_src = numpy.array([[0, 0], [0, 800], [1280, 0],[1280, 800]])
+print("Homography loaded")
+
+def handle_key_presses() -> None:
+    key = cv2.waitKeyEx(1)
+    selectedPoint = 0
+    if key == 32:
+        print("Homography dumped")
+        numpy.savetxt("homography.txt", pts_src, fmt="%s")
+    if key == ord("l"):
+        pts_src = numpy.loadtxt(open("homography.txt"))
+        print("Homography loaded")
+    if key == ord("1"):
+        selectedPoint = 0
+        print("point 1")
+    if key == ord("2"):
+        selectedPoint = 1
+        print("point 2")
+    if key == ord("3"):
+        selectedPoint = 2
+        print("point 3")
+    if key == ord("4"):
+        selectedPoint = 3
+        print("point 4")
+    elif key is not -1:
+        handleKeypress(key, selectedPoint)
+
+
+def handleKeypress(key:int, selectedPoint:int):
+    if key == 2424832:
+        print("left")
+        pts_src[selectedPoint, 0] += 1
+    if key == 2490368:
+        print("up")
+        pts_src[selectedPoint, 1] += 1
+    if key == 2555904:
+        print("right")
+        pts_src[selectedPoint, 0] -= 1
+    if key == 2621440:
+        print("down")
+        pts_src[selectedPoint, 1] -= 1
