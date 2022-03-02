@@ -1,3 +1,4 @@
+from detection import detect_markers
 from image import buffer_to_array, sharpen_and_rotate_image
 import pyrealsense2 as rs
 import numpy as np
@@ -179,28 +180,10 @@ while True:
                             buildingDict.pop(x)
                     ir_image = sharpen_and_rotate_image(buffer_to_array(ir_data.get_data()))
 
-                    aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_250)
-                    parameters = aruco.DetectorParameters_create()
-                    parameters.cornerRefinementMethod = aruco.CORNER_REFINE_CONTOUR
-
-                    parameters.maxMarkerPerimeterRate = 0.2
-                    parameters.minMarkerPerimeterRate =0.05
-                    parameters.polygonalApproxAccuracyRate = 0.03
-
-                    # parameters.minOtsuStdDev = 2.0
-                    # parameters.perspectiveRemovePixelPerCell = 10
-                    # parameters.perspectiveRemoveIgnoredMarginPerCell = 0.13
-                    # parameters.errorCorrectionRate = 0.3
-
-                    # parameters.adaptiveThreshWinSizeMin = 3
-                    # parameters.adaptiveThreshWinSizeMax = 23
-                    # parameters.adaptiveThreshWinSizeStep = 5
-                    # parameters.adaptiveThreshConstant = 7
 
                     # ir_image = np.hstack((ir_image,ir_image))
                     # ir_image = np.vstack((ir_image,ir_image))
-                    corners, ids, rejectedImgPoints  = aruco.detectMarkers(ir_image, aruco_dict, parameters=parameters)
-
+                    corners, ids, rejectedImgPoints  = detect_markers(ir_image)
 
                     if ids is not None:
                         for i in range(0,len(ids)):
