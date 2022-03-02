@@ -10,6 +10,9 @@ install-mac:
 install:
 	pip install -r requirements-dev.txt
 
+install-ci:
+	pip install -r requirements-ci.txt
+
 test: test/*.py
 	python -m pytest -ra
 
