@@ -33,7 +33,7 @@ def draw_status_window(buildingDict: Dict[int, Building]) -> None:
     cv2.imshow("Status", status)
 
 
-def draw_monitor_window(ir_image, corners, rejectedImgPoints) -> None:
+def draw_monitor_window(ir_image, corners, rejectedImgPoints, window_id: int = 0) -> None:
 
     ir_image = aruco.drawDetectedMarkers(ir_image, corners, borderColor=(0, 255, 0))
     ir_image = aruco.drawDetectedMarkers(
@@ -49,9 +49,10 @@ def draw_monitor_window(ir_image, corners, rejectedImgPoints) -> None:
             ir_image, (j, 0), (j, ir_image.shape[1]), (255, 255, 255), 1
         )
         j += 10
-
-    cv2.namedWindow("IR", cv2.WINDOW_AUTOSIZE)
-    cv2.imshow("IR", ir_image)
+    window_name = f'IR_{window_id}'
+    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+    cv2.imshow(window_name, ir_image)
+    handle_key_presses()
 
 
 #[width, height]
