@@ -1,4 +1,5 @@
-from typing import List
+from collections import UserDict
+from typing import Dict, List
 
 
 class Building:
@@ -23,3 +24,14 @@ class Building:
 
     def getID(self):
         return self.id
+
+
+def printJSON(buildingDict: Dict[int, Building]) -> Dict[int, List[float]]:
+    jsonDict = {}
+    parentDict ={}
+
+    for i in buildingDict:
+        jsonDict[i] = buildingDict[i].getPos()
+
+    parentDict["table_state"] = jsonDict
+    return jsonDict

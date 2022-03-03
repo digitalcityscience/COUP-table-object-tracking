@@ -1,12 +1,10 @@
 from typing import Dict, List
-from building import Building
+from building import Building, printJSON
 from detection import detect_markers
 from hud import draw_monitor_window, draw_status_window, handle_key_presses
 from image import buffer_to_array, sharpen_and_rotate_image
 import pyrealsense2 as rs
 import numpy as np
-import cv2
-import cv2.aruco as aruco
 import time
 import math
 import json
@@ -31,16 +29,6 @@ def rotate(xy, theta):
 
 def translate(xy, offset):
     return xy[0] + offset[0], xy[1] + offset[1]
-
-def printJSON(data):
-    jsonDict = {}
-    parentDict ={}
-
-    for i in data:
-        jsonDict[i] = data[i].getPos()
-
-    parentDict["table_state"] = jsonDict
-    return jsonDict
 
 def normalizeCorners(corner) -> List[float]:
     coords = corner
