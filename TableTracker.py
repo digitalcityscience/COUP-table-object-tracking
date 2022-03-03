@@ -1,5 +1,5 @@
 from typing import Dict, List
-from building import Building, printJSON
+from building import Building, add_detected_buildings_to_dict, printJSON
 from detection import detect_markers, normalizeCorners
 from hud import draw_monitor_window, draw_status_window, handle_key_presses
 from image import buffer_to_array, sharpen_and_rotate_image
@@ -85,20 +85,11 @@ while True:
                         buildingDict[x].updateConfidence(loopcount)
                         if buildingDict[x].getConfidence() > 5: #if not found after 5 loops, discard
                             buildingDict.pop(x)
+                            
                     ir_image = sharpen_and_rotate_image(buffer_to_array(ir_data.get_data()))
                     corners, ids, rejectedImgPoints  = detect_markers(ir_image)
 
-                    if ids is not None:
-                        for i in range(0,len(ids)):
-                            markerID = int(ids[i])
-
-                            if markerID is not 500:
-                                pos = normalizeCorners(corners[i])
-
-                                if markerID not in buildingDict:
-                                    buildingDict[markerID] = Building(int(ids[i]), pos, loopcount)
-                                else:
-                                    buildingDict[markerID].updatePosition(pos, loopcount)
+                    add_detected_buildings_to_dict(ids, corners, loopcount, buildingDict)
 
                     try:
                         send_detected_buildings(conn, buildingDict, lastSentTime)
