@@ -1,3 +1,4 @@
+import math
 from typing import Dict
 import numpy
 import cv2
@@ -6,31 +7,49 @@ import cv2.aruco as aruco
 from building import Building
 
 
-def draw_status_window(buildingDict: Dict[int, Building]) -> None:
-    status = numpy.zeros((800, 320, 3), numpy.uint8)
-    statusX = 50
+def draw_status_window(buildingDict: Dict[int, Building], camera_id: int = 0) -> None:
+    status = numpy.zeros((800, 335, 3), numpy.uint8)
+    statusY = 50
     font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.putText(status, 'mId', (30, statusY), font,  0.6, (255, 255, 255), 1)
+    cv2.putText(status, 'xPos', (100, statusY), font, 0.6, (255, 255, 255), 1)
+    cv2.putText(
+            status,
+            f'yDeg',
+            (150, statusY),
+            font,
+            0.6,
+            (255, 255, 255),
+            1,
+        )
+    cv2.putText(status, '?%', (220, statusY), font, 0.6, (255, 255, 255), 1)
+    cv2.putText(status, f'cId', (290, statusY), font, 0.6, (255, 255, 255), 1)
+    statusY += 35
+
     for x in buildingDict:
         ctr = buildingDict[x].getPos()[0]
         deg = buildingDict[x].getPos()[1]
         id = buildingDict[x].getID()
         conf = buildingDict[x].getConfidence()
 
-        cv2.putText(status, str(id), (30, statusX), font, 0.8, (255, 255, 255), 1)
-        cv2.putText(status, str(ctr), (100, statusX), font, 0.6, (255, 255, 255), 1)
+        cv2.putText(status, str(id), (30, statusY), font, 0.8, (255, 255, 255), 1)
+        cv2.putText(status, str(ctr), (100, statusY), font, 0.6, (255, 255, 255), 1)
         cv2.putText(
             status,
-            str(int(deg * 180 / 3.14)),
-            (220, statusX),
+            str(math.floor(math.radians(deg))),
+            (150, statusY),
             font,
             0.6,
             (255, 255, 255),
             1,
         )
-        cv2.putText(status, str(conf), (300, statusX), font, 0.6, (255, 255, 255), 1)
-        statusX += 35
-    cv2.namedWindow("Status", cv2.WINDOW_AUTOSIZE)
-    cv2.imshow("Status", status)
+        cv2.putText(status, str(conf), (220, statusY), font, 0.6, (255, 255, 255), 1)
+        cv2.putText(status, f'{camera_id}', (290, statusY), font, 0.6, (255, 255, 255), 1)
+        statusY += 35
+    
+    window_name = f'Status_{camera_id}'
+    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+    cv2.imshow(window_name, status)
 
 
 def draw_monitor_window(ir_image, corners, rejectedImgPoints, window_id: int = 0) -> None:
