@@ -1,5 +1,5 @@
 from typing import Dict, List
-from building import Building, add_detected_buildings_to_dict, printJSON
+from building import Building, add_detected_buildings_to_dict, discard_low_confidence_buildings, printJSON
 from detection import detect_markers, normalizeCorners
 from hud import draw_monitor_window, draw_status_window, handle_key_presses
 from image import buffer_to_array, sharpen_and_rotate_image
@@ -40,9 +40,6 @@ lastSentTime = time.time()
 HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
 PORT = 8052        # Port to listen on (non-privileged ports are > 1023)
 
-wheelPosX = 0
-wheelPosY = 0
-
 
 def send_detected_buildings(socket:socket.socket, buildingDict:Dict[int,Building], last_send_time:float) -> None:
     if (time.time() - last_send_time) > 0.05:
@@ -81,14 +78,9 @@ while True:
                     if not ir_data:
                         continue
 
-                    for x in list(buildingDict):
-                        buildingDict[x].updateConfidence(loopcount)
-                        if buildingDict[x].getConfidence() > 5: #if not found after 5 loops, discard
-                            buildingDict.pop(x)
-                            
+                    discard_low_confidence_buildings(buildingDict, loopcount)
                     ir_image = sharpen_and_rotate_image(buffer_to_array(ir_data.get_data()))
                     corners, ids, rejectedImgPoints  = detect_markers(ir_image)
-
                     add_detected_buildings_to_dict(ids, corners, loopcount, buildingDict)
 
                     try:
