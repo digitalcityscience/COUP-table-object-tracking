@@ -55,16 +55,13 @@ while True:
         conn, addr = s.accept()
         with conn:
             print('Connected by', addr)
-
             while conn:
                     if loop > 32: #neuer Loop
                         loop = 16
                         loopcount += 1
                     else:
                         try:
-                            #ir_sensor.set_option(rs.option.gain, gain)
                             loop += 4
-                            #print("TTS: ",(time.time() - start_time) * 1000) # F^^
                         except:
                             loopcount -= 1
 
