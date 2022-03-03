@@ -1,7 +1,7 @@
-from unittest import expectedFailure
-from detection import detect_markers
 import os
+
 import numpy
+from detection import detect_markers
 from image import read_from_file
 
 fixture_file = os.path.join(
@@ -24,7 +24,6 @@ def test_detect_aruco_without_matches():
     )
 
     corners, ids, rejectedImgPoints = detect_markers(read_from_file(fixture_file))
-
     assert corners == ()
     assert numpy.array_equal(rejectedImgPoints, expected_rejectedImgPoints)
     assert ids == None

@@ -1,9 +1,10 @@
-from collections import UserDict
-from typing import Dict, List
+from typing import Dict, List, Union
+
+from detection import Corner, normalizeCorners
 
 
 class Building:
-    def __init__(self, id:int, pos:List[float], lastSeen:int):
+    def __init__(self, id: int, pos: List[Union[float, int]], lastSeen: int):
         self.id = id
         self.pos = pos
         self.confidence = 0
@@ -26,9 +27,25 @@ class Building:
         return self.id
 
 
+def add_detected_buildings_to_dict(
+    ids: List[int], corners: List[Corner], loopcount: int, buildingDict: Dict[int, Building]
+) -> None:
+    if ids is not None:
+        for i in range(0, len(ids)):
+            markerID = int(ids[i])
+
+            if markerID is not 500:
+                pos = normalizeCorners(corners[i])
+
+                if markerID not in buildingDict:
+                    buildingDict[markerID] = Building(int(ids[i]), pos, loopcount)
+                else:
+                    buildingDict[markerID].updatePosition(pos, loopcount)
+
+
 def printJSON(buildingDict: Dict[int, Building]) -> Dict[int, List[float]]:
     jsonDict = {}
-    parentDict ={}
+    parentDict = {}
 
     for i in buildingDict:
         jsonDict[i] = buildingDict[i].getPos()

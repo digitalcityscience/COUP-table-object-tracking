@@ -1,5 +1,5 @@
 import math
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import numpy
 import cv2.aruco as aruco
@@ -20,16 +20,15 @@ parameters.polygonalApproxAccuracyRate = 0.03
 # parameters.adaptiveThreshWinSizeStep = 5
 # parameters.adaptiveThreshConstant = 7
 
-
-DetectionResult = Tuple[str, List[int], List]
-
+Corner = numpy.ndarray
+DetectionResult = Tuple[List[Corner], List[int], List]
 
 def detect_markers(ir_image: List) -> DetectionResult:
     # corners, ids, rejectedImgPoints
     return aruco.detectMarkers(ir_image, aruco_dict, parameters=parameters)
 
 
-def normalizeCorners(corner) -> List[float]:
+def normalizeCorners(corner:Corner) -> List[Union[int, float]]:
     coords = corner
     pts = coords.reshape((-1,1,2))
 
