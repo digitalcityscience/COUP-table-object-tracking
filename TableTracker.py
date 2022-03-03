@@ -1,6 +1,6 @@
 from typing import Dict, List
 from building import Building, printJSON
-from detection import detect_markers
+from detection import detect_markers, normalizeCorners
 from hud import draw_monitor_window, draw_status_window, handle_key_presses
 from image import buffer_to_array, sharpen_and_rotate_image
 import pyrealsense2 as rs
@@ -10,46 +10,10 @@ import math
 import json
 import socket
 
-kernel = np.array([[-1,-1,-1],
-                    [-1, 9,-1],
-                    [-1,-1,-1]])
 buildingDict:Dict[int,Building] = {}
 
 loop = 16
 exposure = 8000
-
-def rotate(xy, theta):
-    # https://en.wikipedia.org/wiki/Rotation_matrix#In_two_dimensions
-    cos_theta, sin_theta = math.cos(theta), math.sin(theta)
-
-    return (
-        xy[0] * cos_theta - xy[1] * sin_theta,
-        xy[0] * sin_theta + xy[1] * cos_theta
-    )
-
-def translate(xy, offset):
-    return xy[0] + offset[0], xy[1] + offset[1]
-
-def normalizeCorners(corner) -> List[float]:
-    coords = corner
-    pts = coords.reshape((-1,1,2))
-
-    p1 = tuple(pts[0][0])
-    p4 = tuple(pts[2][0])
-
-    ctrX = (p1[0] + p4[0]) / 2
-    ctrY = (p1[1] + p4[1]) / 2
-
-    dx = p1[0] - ctrX
-    dy = p1[1] - ctrY
-
-    angle = math.atan2(dy,dx)
-    angleDeg = math.degrees(angle)
-
-    ctrX = np.interp(ctrX,[0,10000],[0,10000])
-    ctrY = np.interp(ctrY,[0,10000],[0,10000])
-
-    return [int(ctrX), int(ctrY), angleDeg]
 
 #Realsense Config
 #--------------------------------------------
