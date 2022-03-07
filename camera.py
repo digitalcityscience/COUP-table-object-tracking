@@ -1,10 +1,12 @@
+from functools import lru_cache
 from random import randrange
 from time import sleep
 from typing import Any, AsyncIterable, Iterable, Tuple
-from image import write_to_file
+
 import pyrealsense2 as rs
+
+from image import write_to_file
 from realsense.realsense_device_manager import DeviceManager
-from functools import lru_cache
 
 
 @lru_cache(1)
@@ -57,3 +59,8 @@ def write_images():
     finally:
         if device_manager:
             device_manager.disable_streams()
+
+
+if __name__ == "__main__":
+    write_images()
+    exit()
