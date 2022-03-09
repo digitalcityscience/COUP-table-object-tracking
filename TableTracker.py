@@ -78,7 +78,7 @@ while True:
                     discard_low_confidence_buildings(buildingDict, loopcount)
                     ir_image = sharpen_and_rotate_image(buffer_to_array(ir_data.get_data()))
                     corners, ids, rejectedImgPoints  = detect_markers(ir_image)
-                    add_detected_buildings_to_dict(ids, corners, loopcount, buildingDict)
+                    add_detected_buildings_to_dict(ids, "cameraId", corners, loopcount, buildingDict)
 
                     try:
                         send_detected_buildings(conn, buildingDict, lastSentTime)

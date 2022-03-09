@@ -1,49 +1,62 @@
+from dataclasses import dataclass
 from typing import Dict, List, Union
 
 from detection import Corner, normalizeCorners
 
+Position = List[Union[float, int]]
 
+
+@dataclass
 class Building:
-    def __init__(self, id: int, pos: List[Union[float, int]], lastSeen: int):
-        self.id = id
-        self.pos = pos
-        self.confidence = 0
-        self.lastSeen = lastSeen
+    id: int
+    position: Position
+    lastSeen: int
+    cameraId: str
+    confidence: int = 0
 
     def updateConfidence(self, currentLoop):
         self.confidence = currentLoop - self.lastSeen
 
     def updatePosition(self, pos, loopcount):
-        self.pos = pos
+        self.position = pos
         self.lastSeen = loopcount
 
     def getConfidence(self):
         return self.confidence
 
     def getPos(self):
-        return self.pos
+        return self.position
 
     def getID(self):
         return self.id
 
 
+BuildingDictionary = Dict[int, Building]
+
+
 def add_detected_buildings_to_dict(
     ids: List[int],
+    cameraId: str,
     corners: List[Corner],
     loopcount: int,
-    buildingDict: Dict[int, Building],
+    buildingDict: BuildingDictionary,
 ) -> None:
     if ids is not None:
         for i in range(0, len(ids)):
             markerID = int(ids[i])
 
             if markerID is not 500:
-                pos = normalizeCorners(corners[i])
+                position = normalizeCorners(corners[i])
 
                 if markerID not in buildingDict:
-                    buildingDict[markerID] = Building(int(ids[i]), pos, loopcount)
+                    buildingDict[markerID] = Building(
+                        id=markerID,
+                        position=position,
+                        lastSeen=loopcount,
+                        cameraId=cameraId,
+                    )
                 else:
-                    buildingDict[markerID].updatePosition(pos, loopcount)
+                    buildingDict[markerID].updatePosition(position, loopcount)
 
 
 def discard_low_confidence_buildings(
