@@ -8,14 +8,19 @@ import pyrealsense2 as rs
 from image import write_to_file
 from realsense.realsense_device_manager import DeviceManager
 
+FRAMES_PER_SECOND = 30
+
 
 @lru_cache(1)
 def get_device_manager() -> DeviceManager:
     print("initializing realsense device manager")
     config = rs.config()
-    config.enable_stream(rs.stream.infrared, 1, 1280, 800, rs.format.y8, 30)
+    config.enable_stream(
+        rs.stream.infrared, 1, 1280, 800, rs.format.y8, FRAMES_PER_SECOND
+    )
     device_manager = DeviceManager(rs.context(), config)
     device_manager.enable_all_devices()
+    print(f"Active device serial numbers: {device_manager.get_enabled_devices_ids()}")
     return device_manager
 
 
