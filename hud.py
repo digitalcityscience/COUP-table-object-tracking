@@ -54,7 +54,8 @@ def draw_status_window(buildingDict: Dict[int, Building], camera_id: int = 0) ->
 
 
 def draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id: int = 0) -> None:
-
+    # convert image to COLOR_GRAY2BGR so that we can draw with color over it
+    ir_image = cv2.cvtColor(ir_image, cv2.COLOR_GRAY2BGR)
     ir_image = aruco.drawDetectedMarkers(ir_image, corners, borderColor=(0, 255, 0))
     ir_image = aruco.drawDetectedMarkers(
         ir_image, rejectedImgPoints, borderColor=(0, 0, 255)
