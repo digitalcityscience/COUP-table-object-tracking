@@ -1,3 +1,4 @@
+import json
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Union
@@ -31,6 +32,9 @@ class Building:
 
     def getID(self):
         return self.id
+
+    def toJSON(self) -> str:
+        return json.dumps({self.id: self.position})
 
 
 BuildingDictionary = Dict[int, Building]
