@@ -1,7 +1,7 @@
 import os
 
 import numpy
-from detection import detect_markers
+from detection import detect_markers, normalizeCorners
 from image import read_from_file
 
 fixture_file = os.path.join(
@@ -40,3 +40,20 @@ def test_detect_aruco_with_matches():
     expected_marker_ids = numpy.array([[19], [20]])
     _, ids, _ = detect_markers(read_from_file(fixture_file_sharp))
     assert numpy.array_equiv(ids, expected_marker_ids)
+
+
+def test_normalize_corners():
+    corners = numpy.array(
+        [
+            [
+                [
+                    [453.17453, 631.852],
+                    [439.2763, 619.1162],
+                    [446.3173, 596.88025],
+                    [460.5247, 608.08624],
+                ]
+            ]
+        ],
+        dtype="float32",
+    )
+    assert numpy.array_equiv(normalizeCorners(corners), [449, 614, 78.90624111411])
