@@ -28,7 +28,7 @@ def detect_markers(ir_image: List) -> DetectionResult:
     return aruco.detectMarkers(ir_image, aruco_dict, parameters=parameters)
 
 
-def normalizeCorners(corner:Corner) -> List[Union[int, float]]:
+def normalizeCorners(corner:Corner) -> Tuple[int,int,float]:
     coords = corner
     pts = coords.reshape((-1,1,2))
 
@@ -47,4 +47,4 @@ def normalizeCorners(corner:Corner) -> List[Union[int, float]]:
     ctrX = numpy.interp(ctrX,[0,10000],[0,10000])
     ctrY = numpy.interp(ctrY,[0,10000],[0,10000])
 
-    return [int(ctrX), int(ctrY), angleDeg]
+    return int(ctrX), int(ctrY), angleDeg
