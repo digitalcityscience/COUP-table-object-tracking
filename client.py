@@ -13,16 +13,18 @@ class EchoClientProtocol(asyncio.Protocol):
         print("The server closed the connection")
         self.on_con_lost.set_result(True)
 
+    def connection_made(self, transport):
+        print("Connected to server!")
+
 
 async def main():
     loop = asyncio.get_running_loop()
     on_con_lost = loop.create_future()
-    message = "Echo subscription!"
-
+    SERVER_SETTINGS = ("localhost", 8052)
+    print(f"Connecting to socket on: {SERVER_SETTINGS}")
     transport, protocol = await loop.create_connection(
-        lambda: EchoClientProtocol(message, on_con_lost), "127.0.0.1", 8052
+        lambda: EchoClientProtocol("Echo subscription!", on_con_lost), *SERVER_SETTINGS
     )
-
     try:
         await on_con_lost
     finally:
