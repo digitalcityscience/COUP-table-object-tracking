@@ -1,2 +1,3 @@
 pyrealsense2
 opencv-contrib-python
+reactivex

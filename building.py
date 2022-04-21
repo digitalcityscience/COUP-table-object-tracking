@@ -1,11 +1,11 @@
 import json
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Union, Tuple
+from typing import Dict, List, Tuple, Union
 
 from detection import Corner, normalizeCorners
 
-Position = Tuple[int,int,float]
+Position = Tuple[int, int, float]
 CameraId = Union[int, str]
 
 
@@ -34,7 +34,7 @@ class Building:
         return self.id
 
     def toJSON(self) -> str:
-        return json.dumps({self.id: self.position})
+        return json.dumps({self.id: [*self.position, self.cameraId]})
 
 
 BuildingDictionary = Dict[int, Building]
@@ -99,7 +99,7 @@ def printJSON(buildingDict: Dict[int, Building]) -> Dict[int, List[float]]:
     parentDict = {}
 
     for i in buildingDict:
-        jsonDict[i] = list(buildingDict[i].getPos())
+        jsonDict[i] = [*(buildingDict[i].getPos()), buildingDict[i].cameraId]
 
     parentDict["table_state"] = jsonDict
     return jsonDict

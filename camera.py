@@ -1,14 +1,16 @@
+import time
 from functools import lru_cache
-from random import randrange
 from time import sleep
-from typing import Any, AsyncIterable, Iterable, Tuple
+from typing import Any, Iterable, Tuple
 
 import pyrealsense2 as rs
 
 from image import write_to_file
 from realsense.realsense_device_manager import DeviceManager
 
-FRAMES_PER_SECOND = 30
+FRAMES_PER_SECOND = 15
+
+Frame = Iterable[Tuple[int, Any]]
 
 
 @lru_cache(1)
@@ -24,7 +26,7 @@ def get_device_manager() -> DeviceManager:
     return device_manager
 
 
-def poll_frame_data() -> Iterable[Tuple[int, Any]]:
+def poll_frame_data() -> Frame:
     device_manager = None
     try:
         device_manager = get_device_manager()
@@ -42,6 +44,23 @@ def poll_frame_data() -> Iterable[Tuple[int, Any]]:
             device_manager.disable_streams()
 
 
+def get_latest_frame_data() -> Iterable[Tuple[int, Any]]:
+    device_manager = None
+    try:
+        device_manager = get_device_manager()
+        frames = []
+        frames = device_manager.poll_frames()
+        for camera_id in frames:
+            frame = frames[camera_id]
+            frame_value = list(frame.values())[0]
+            frame_data = frame_value.get_data()
+            short_camera_id = camera_id[0][-3:]
+            yield short_camera_id, frame_data
+    finally:
+        if device_manager:
+            device_manager.disable_streams()
+
+
 def write_images():
     device_manager = None
     try:
@@ -50,14 +69,13 @@ def write_images():
         for k in range(5):
             frames = device_manager.poll_frames()
             print(frames)
-            frame_id = randrange(1000)
             for camera_id in frames:
                 frame = frames[camera_id]
                 frame_value = list(frame.values())[0]
                 frame_data = frame_value.get_data()
                 print(frame_data)
                 write_to_file(
-                    frame_data, f"output_{frame_id}_cid_{camera_id[0][-3:]}.png"
+                    frame_data, f"output_{time.time()}_cid_{camera_id[0][-3:]}.png"
                 )
             print("Done")
             sleep(10)
