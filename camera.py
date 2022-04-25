@@ -8,7 +8,7 @@ import pyrealsense2 as rs
 from image import write_to_file
 from realsense.realsense_device_manager import DeviceManager
 
-FRAMES_PER_SECOND = 15
+FRAMES_PER_SECOND = 30
 
 Frame = Iterable[Tuple[int, Any]]
 
