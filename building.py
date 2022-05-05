@@ -1,8 +1,7 @@
 import json
 import time
 from dataclasses import dataclass
-from turtle import pos
-from typing import Dict, List, Set, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 from detection import Corner, normalizeCorners
 
@@ -37,6 +36,7 @@ class Building:
     def toJSON(self) -> str:
         return json.dumps({self.id: [*self.position, self.cameraId]})
 
+
 class Buildings:
     bDict: Dict[int, Building] = {}
 
@@ -44,12 +44,18 @@ class Buildings:
         self.bDict.clear()
 
     def addBuilding(self, building: Building):
-        if(self.bDict.get(building.id) is None):
+        if self.bDict.get(building.id) is None:
             self.bDict[building.id] = building
         else:
-            self.bDict[building.id] = Building(id=building.id, position=building.position, lastSeen=12121, confidence=self.bDict[building.id].confidence+1, cameraId=building.cameraId)
+            self.bDict[building.id] = Building(
+                id=building.id,
+                position=building.position,
+                lastSeen=12121,
+                confidence=self.bDict[building.id].confidence + 1,
+                cameraId=building.cameraId,
+            )
 
-    def addBuildings(self, buildings:List[Building]):
+    def addBuildings(self, buildings: List[Building]):
         for building in buildings:
             self.addBuilding(building)
 
@@ -60,9 +66,8 @@ class Buildings:
                 result[building.id] = building
         return result
 
-
     def toJSON(self) -> str:
-        return  json.dumps(printJSON(self.pruneUncertainties()))
+        return json.dumps(printJSON(self.pruneUncertainties()))
 
 
 BuildingDictionary = Dict[int, Building]
