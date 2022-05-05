@@ -54,4 +54,4 @@ def test_normalize_corners():
         ],
         dtype="float32",
     )
-    assert numpy.array_equiv(normalizeCorners(corners), [449, 614, 78.90624111411])
+    assert numpy.array_equiv(normalizeCorners(corners), [449, 614, -78.90624111411])
