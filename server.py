@@ -29,7 +29,7 @@ async def send_tracking_matches(connection):
     last_sent = time_ns()
     for frame in poll_frame_data():
         buildings_holder.addBuildings(track_v2(frame))
-        if (time_ns() - last_sent > 500_000_000):
+        if (time_ns() - last_sent > 200_000_000):
             buildings_json = buildings_holder.toJSON()
             print("Sending to unity:", buildings_json)
             last_sent = time_ns()
@@ -43,7 +43,7 @@ async def test():
     last_sent = time_ns()
     for frame in poll_frame_data():
         buildings_holder.addBuildings(track_v2(frame))
-        if (time_ns() - last_sent > 500_000_000):
+        if (time_ns() - last_sent > 200_000_000):
             buildings_json = buildings_holder.toJSON()
             print("Sending to unity:", buildings_json)
             last_sent = time_ns()
