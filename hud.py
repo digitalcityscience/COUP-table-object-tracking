@@ -16,7 +16,7 @@ def draw_status_window(buildingDict: Dict[int, Building], camera_id: int = 0) ->
     cv2.putText(status, 'xPos', (100, statusY), font, 0.6, (255, 255, 255), 1)
     cv2.putText(
             status,
-            f'yDeg',
+            f'rotDeg',
             (150, statusY),
             font,
             0.6,
@@ -29,7 +29,7 @@ def draw_status_window(buildingDict: Dict[int, Building], camera_id: int = 0) ->
 
     for x in buildingDict:
         ctr = buildingDict[x].getPos()[0]
-        deg = buildingDict[x].getPos()[1]
+        deg = buildingDict[x].getPos()[2]
         id = buildingDict[x].getID()
         conf = buildingDict[x].getConfidence()
 
@@ -37,7 +37,7 @@ def draw_status_window(buildingDict: Dict[int, Building], camera_id: int = 0) ->
         cv2.putText(status, str(ctr), (100, statusY), font, 0.6, (255, 255, 255), 1)
         cv2.putText(
             status,
-            str(math.floor(math.radians(deg))),
+            str(deg),
             (150, statusY),
             font,
             0.6,
