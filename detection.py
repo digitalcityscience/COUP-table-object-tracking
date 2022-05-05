@@ -22,9 +22,8 @@ parameters.polygonalApproxAccuracyRate = 0.03
 
 Corner = numpy.ndarray
 DetectionResult = Tuple[List[Corner], List[int], List]
-Matrix = numpy.ndarray[int, numpy.dtype[numpy.generic]]
 
-def detect_markers(ir_image: Matrix) -> DetectionResult:
+def detect_markers(ir_image: List) -> DetectionResult:
     # corners, ids, rejectedImgPoints
     return aruco.detectMarkers(ir_image, aruco_dict, parameters=parameters)
 
