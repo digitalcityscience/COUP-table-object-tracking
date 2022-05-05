@@ -28,23 +28,24 @@ def detect_markers(ir_image: List) -> DetectionResult:
     return aruco.detectMarkers(ir_image, aruco_dict, parameters=parameters)
 
 
-def normalizeCorners(corner:Corner) -> Tuple[int,int,float]:
-    coords = corner
-    pts = coords.reshape((-1,1,2))
+def normalizeCorners(coords:Corner) -> Tuple[int,int,float]:
 
-    p1 = tuple(pts[0][0])
-    p4 = tuple(pts[2][0])
+    p1 = tuple(coords[0][0])
+    p3 = tuple(coords[0][2])
 
-    ctrX = (p1[0] + p4[0]) / 2
-    ctrY = (p1[1] + p4[1]) / 2
+    centerX = (p1[0] + p3[0]) / 2
+    centerY = (p1[1] + p3[1]) / 2
 
-    dx = p1[0] - ctrX
-    dy = p1[1] - ctrY
+    dx = p1[0] - centerX
+    dy = p1[1] - centerY
 
     angle = math.atan2(dy,dx)
     angleDeg = math.degrees(angle)
+    mirroredAngleDeg = -angleDeg #we need do multiply with -1 because the picture that we got is mirrord
+    #angleDeg = (angleDeg + 360) % 360  # map from -180<->180 to 0<->360
 
-    ctrX = numpy.interp(ctrX,[0,10000],[0,10000])
-    ctrY = numpy.interp(ctrY,[0,10000],[0,10000])
-
-    return int(ctrX), int(ctrY), angleDeg
+    centerX = numpy.interp(centerX,[0,10000],[0,10000])
+    centerY = numpy.interp(centerY,[0,10000],[0,10000])
+    
+    return int(centerX), int(centerY), mirroredAngleDeg
+    
