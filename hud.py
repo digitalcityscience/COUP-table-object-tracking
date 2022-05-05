@@ -11,20 +11,21 @@ from building import Building
 def draw_status_window(buildingDict: Dict[int, Building], camera_id: int = 0) -> None:
     status = numpy.zeros((800, 335, 3), numpy.uint8)
     statusY = 50
+    linePositions = [15, 75, 130, 240, 290]
     font = cv2.FONT_HERSHEY_SIMPLEX
-    cv2.putText(status, 'mId', (30, statusY), font,  0.6, (255, 255, 255), 1)
-    cv2.putText(status, 'xPos', (100, statusY), font, 0.6, (255, 255, 255), 1)
+    cv2.putText(status, 'mId', (linePositions[0], statusY), font,  0.6, (255, 255, 255), 1)
+    cv2.putText(status, 'xPos', (linePositions[1], statusY), font, 0.6, (255, 255, 255), 1)
     cv2.putText(
             status,
             f'rotDeg',
-            (150, statusY),
+            (linePositions[2], statusY),
             font,
             0.6,
             (255, 255, 255),
             1,
         )
-    cv2.putText(status, '?%', (220, statusY), font, 0.6, (255, 255, 255), 1)
-    cv2.putText(status, f'cId', (290, statusY), font, 0.6, (255, 255, 255), 1)
+    cv2.putText(status, '?%', (linePositions[3], statusY), font, 0.6, (255, 255, 255), 1)
+    cv2.putText(status, f'cId', (linePositions[4], statusY), font, 0.6, (255, 255, 255), 1)
     statusY += 35
 
     for x in buildingDict:
@@ -33,19 +34,19 @@ def draw_status_window(buildingDict: Dict[int, Building], camera_id: int = 0) ->
         id = buildingDict[x].getID()
         conf = buildingDict[x].getConfidence()
 
-        cv2.putText(status, str(id), (30, statusY), font, 0.8, (255, 255, 255), 1)
-        cv2.putText(status, str(ctr), (100, statusY), font, 0.6, (255, 255, 255), 1)
+        cv2.putText(status, str(id), (linePositions[0], statusY), font, 0.8, (255, 255, 255), 1)
+        cv2.putText(status, str(ctr), (linePositions[1], statusY), font, 0.6, (255, 255, 255), 1)
         cv2.putText(
             status,
-            str(deg),
-            (150, statusY),
+            f'{deg:.2f}',
+            (linePositions[2], statusY),
             font,
             0.6,
             (255, 255, 255),
             1,
         )
-        cv2.putText(status, str(conf), (220, statusY), font, 0.6, (255, 255, 255), 1)
-        cv2.putText(status, f'{camera_id}', (290, statusY), font, 0.6, (255, 255, 255), 1)
+        cv2.putText(status, str(conf), (linePositions[3], statusY), font, 0.6, (255, 255, 255), 1)
+        cv2.putText(status, f'{camera_id}', (linePositions[4], statusY), font, 0.6, (255, 255, 255), 1)
         statusY += 35
     
     window_name = f'Status_{camera_id}'
