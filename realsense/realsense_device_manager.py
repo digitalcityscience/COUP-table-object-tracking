@@ -5,8 +5,10 @@
 ##################################################################################################
 
 
-import pyrealsense2 as rs
+from typing import List, Tuple
+
 import numpy as np
+import pyrealsense2 as rs
 
 """
   _   _        _                      _____                     _    _                    
@@ -24,7 +26,7 @@ class Device:
         self.pipeline_profile = pipeline_profile
         self.product_line = product_line
 
-def enumerate_connected_devices(context):
+def enumerate_connected_devices(context) -> List[Tuple[str,str]]:
     """
     Enumerate the connected Intel RealSense devices
 
@@ -314,6 +316,9 @@ class DeviceManager:
     def disable_streams(self):
         self.D400_config.disable_all_streams()
         self.L500_config.disable_all_streams()
+    
+    def get_enabled_devices_ids(self) -> List[str]:
+        return list(self._enabled_devices.keys())
 
 
 """
