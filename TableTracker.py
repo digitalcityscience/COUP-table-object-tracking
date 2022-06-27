@@ -1,6 +1,6 @@
 from typing import Dict, List
 from building import Building, add_detected_buildings_to_dict, discard_low_confidence_buildings, printJSON
-from detection import detect_markers, normalizeCorners
+from detection import detect_markers
 from hud import draw_monitor_window, draw_status_window, handle_key_presses
 from image import buffer_to_array, sharpen_and_rotate_image
 import pyrealsense2 as rs
