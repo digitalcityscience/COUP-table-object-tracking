@@ -339,9 +339,12 @@ if __name__ == "__main__":
         c.enable_stream(rs.stream.color, 1280, 720, rs.format.rgb8, 6)
         device_manager = DeviceManager(rs.context(), c)
         device_manager.enable_all_devices()
-        for k in range(150):
+        for k in range(10):
             frames = device_manager.poll_frames()
         device_manager.enable_emitter(True)
         device_extrinsics = device_manager.get_depth_to_color_extrinsics(frames)
+        print(device_extrinsics)
+        print("extrinsics")
+        print(device_manager.get_device_intrinsics(frames))
     finally:
         device_manager.disable_streams()
