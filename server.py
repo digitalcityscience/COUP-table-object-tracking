@@ -8,6 +8,13 @@ from camera import poll_frame_data
 from tracker import track, track_v2
 from time import time_ns
 
+from building import map_detected_buildings
+from camera import poll_frame_data
+from detection import detect_markers
+from hud import draw_monitor_window, draw_status_window
+from image import buffer_to_array, sharpen_and_rotate_image
+
+
 socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 SERVER_SETTINGS = ("localhost", 8052)
 print(f"Listening to socket connections on: {SERVER_SETTINGS}")
@@ -28,6 +35,13 @@ async def send_tracking_matches(connection):
     buildings_holder = Buildings()
     last_sent = time_ns()
     for frame in poll_frame_data():
+        camera_id, image = frame
+        ir_image = sharpen_and_rotate_image(buffer_to_array(image))
+        corners, ids, rejectedImgPoints = detect_markers(ir_image)
+        buildingDict = map_detected_buildings(camera_id, ids, corners)
+        draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id)
+        draw_status_window(buildingDict, camera_id)
+
         buildings_holder.addBuildings(track_v2(frame))
         if (time_ns() - last_sent > 200_000_000):
             buildings_json = buildings_holder.toJSON()
