@@ -5,10 +5,10 @@ import cv2
 import cv2.aruco as aruco
 import numpy
 
-from building import Building
+from marker import Marker
 
 
-def draw_status_window(buildingDict: Dict[int, Building], camera_id: int = 0) -> None:
+def draw_status_window(markerDict: Dict[int, Marker], camera_id: int = 0) -> None:
     status = numpy.zeros((800, 335, 3), numpy.uint8)
     statusY = 50
     linePositions = [15, 75, 130, 240, 290]
@@ -28,11 +28,11 @@ def draw_status_window(buildingDict: Dict[int, Building], camera_id: int = 0) ->
     cv2.putText(status, f'cId', (linePositions[4], statusY), font, 0.6, (255, 255, 255), 1)
     statusY += 35
 
-    for x in buildingDict:
-        ctr = buildingDict[x].getPos()[0]
-        deg = buildingDict[x].getPos()[2]
-        id = buildingDict[x].getID()
-        conf = buildingDict[x].getConfidence()
+    for x in markerDict:
+        ctr = markerDict[x].getPos()[0]
+        deg = markerDict[x].getPos()[2]
+        id = markerDict[x].getID()
+        conf = markerDict[x].getConfidence()
 
         cv2.putText(status, str(id), (linePositions[0], statusY), font, 0.8, (255, 255, 255), 1)
         cv2.putText(status, str(ctr), (linePositions[1], statusY), font, 0.6, (255, 255, 255), 1)
