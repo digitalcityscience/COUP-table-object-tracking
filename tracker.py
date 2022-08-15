@@ -1,33 +1,33 @@
 from typing import Dict, List
 
-from building import (
-    Building,
-    add_detected_buildings_to_dict,
-    map_detected_buildings,
+from marker import (
+    Marker,
+    add_detected_markers_to_dict,
+    map_detected_markers,
 )
 from camera import Frame, poll_frame_data
 from detection import detect_markers
 from image import buffer_to_array, sharpen_and_rotate_image
 
 
-def track(frame: Frame, buildingDict: Dict[int, Building]):
+def track(frame: Frame, markerDict: Dict[int, Marker]):
     camera_id, image = frame
     ir_image = sharpen_and_rotate_image(buffer_to_array(image))
     corners, ids, rejectedImgPoints = detect_markers(ir_image)
-    add_detected_buildings_to_dict(ids, camera_id, corners, 1, buildingDict)
+    add_detected_markers_to_dict(ids, camera_id, corners, 1, markerDict)
 
 
 
-def track_v2(frame: Frame) -> List[Building]:
+def track_v2(frame: Frame) -> List[Marker]:
     camera_id, image = frame
     ir_image = sharpen_and_rotate_image(buffer_to_array(image))
     corners, ids, rejectedImgPoints = detect_markers(ir_image)
-    building_dict = map_detected_buildings(camera_id, ids, corners)
-    return list(building_dict.values())
+    marker_dict = map_detected_markers(camera_id, ids, corners)
+    return list(marker_dict.values())
 
 if __name__ == "__main__":
     for frame in poll_frame_data():
-        buildingDict: Dict[int, Building] = {}
-        track(frame, buildingDict)
-        print(buildingDict)
+        markerDict: Dict[int, Marker] = {}
+        track(frame, markerDict)
+        print(markerDict)
     exit()
