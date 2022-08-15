@@ -62,7 +62,7 @@ class Buildings:
     def pruneUncertainties(self) -> Dict[int, Building]:
         result = {}
         for building in self.bDict.values():
-            if building.confidence >= 2:
+            if building.confidence >= 1:
                 result[building.id] = building
         return result
 
