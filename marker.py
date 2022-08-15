@@ -3,8 +3,6 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Union
 
-from tomlkit import boolean
-
 from detection import Corner, normalizeCorners
 
 Position = Tuple[int, int, float]
@@ -68,13 +66,6 @@ class Markers:
                 result[marker.id] = marker
         return result
 
-    def foundCalibrationMarkers(self)-> bool:
-        for calibMarkerId in calibrationMarkerIds:
-            if calibMarkerId in self.mDict.keys():
-                return True
-
-        return False
-
     def reduceToCalibrationMarkers(self) -> Dict[int, Marker]: 
         result = {}
 
@@ -86,6 +77,14 @@ class Markers:
         return result
 
 
+    def foundCalibrationMarkers(self)-> bool:
+        for calibMarkerId in calibrationMarkerIds:
+            if calibMarkerId in self.mDict.keys():
+                return True
+
+        return False
+
+
     def checkConfidence(self, marker: Marker):
         if marker.confidence >= 2:
             return True
@@ -94,7 +93,8 @@ class Markers:
 
     def toJSON(self) -> str:
         if self.foundCalibrationMarkers():
-            return json.dumps(self.reduceToCalibrationMarkers())
+
+            return json.dumps(printJSON(self.reduceToCalibrationMarkers()))
             
         return json.dumps(printJSON(self.pruneUncertainties()))
         
