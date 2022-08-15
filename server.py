@@ -1,9 +1,7 @@
 import asyncio
-import json
 import socket
-from typing import Dict
 
-from building import Building, Buildings, printJSON
+from marker import Markers
 from camera import poll_frame_data
 from tracker import track, track_v2
 from time import time_ns
@@ -25,30 +23,30 @@ async def main():
 
 
 async def send_tracking_matches(connection):
-    buildings_holder = Buildings()
+    markers_holder = Markers()
     last_sent = time_ns()
     for frame in poll_frame_data():
-        buildings_holder.addBuildings(track_v2(frame))
+        markers_holder.addMarkers(track_v2(frame))
         if (time_ns() - last_sent > 200_000_000):
-            buildings_json = buildings_holder.toJSON()
-            print("Sending to unity:", buildings_json)
+            markers_json = markers_holder.toJSON()
+            print("Sending to unity:", markers_json)
             last_sent = time_ns()
-            buildings_holder.clear()
-            await loop.sock_sendall(connection, buildings_json.encode("utf-8"))
+            markers_holder.clear()
+            await loop.sock_sendall(connection, markers_json.encode("utf-8"))
             
 
             
 async def test():
-    buildings_holder = Buildings()
+    markers_holder = Markers()
     last_sent = time_ns()
     for frame in poll_frame_data():
-        buildings_holder.addBuildings(track_v2(frame))
+        markers_holder.addMarkers(track_v2(frame))
         if (time_ns() - last_sent > 200_000_000):
-            buildings_json = buildings_holder.toJSON()
-            print("Sending to unity:", buildings_json)
+            markers_json = markers_holder.toJSON()
+            print("Sending to unity:", markers_json)
             last_sent = time_ns()
-            buildings_holder.clear()
-            buildings_json.encode("utf-8")
+            markers_holder.clear()
+            markers_json.encode("utf-8")
 
 
 loop.run_until_complete(main())
