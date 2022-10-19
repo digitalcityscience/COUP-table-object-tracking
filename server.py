@@ -36,7 +36,7 @@ async def send_tracking_matches(connection):
         draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id)
         draw_status_window(buildingDict, camera_id)
 
-        markers_holder.addMarkers(track_v2(frame))
+        markers_holder.updateMarkers(track_v2(frame))
         if (time_ns() - last_sent > 200_000_000):
             markers_json = markers_holder.toJSON()
             print("Sending to unity:", markers_json)
@@ -50,7 +50,7 @@ async def test():
     markers_holder = Markers()
     last_sent = time_ns()
     for frame in poll_frame_data():
-        markers_holder.addMarkers(track_v2(frame))
+        markers_holder.updateMarkers(track_v2(frame))
         if (time_ns() - last_sent > 200_000_000):
             markers_json = markers_holder.toJSON()
             print("Sending to unity:", markers_json)
