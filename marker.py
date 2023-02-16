@@ -86,17 +86,20 @@ class Markers:
 
 
     def checkConfidence(self, marker: Marker):
-        if marker.confidence >= 2:
+        if marker.confidence >= 1:
             return True
         
         return False
 
     def toJSON(self) -> str:
         if self.foundCalibrationMarkers():
+            print("sending only calibration markers")
+            print("markers found:",  self.reduceToCalibrationMarkers().keys())
 
             return json.dumps(printJSON(self.reduceToCalibrationMarkers()))
-            
+
         return json.dumps(printJSON(self.pruneUncertainties()))
+            
         
 
         
