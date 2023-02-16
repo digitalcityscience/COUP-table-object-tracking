@@ -1,5 +1,5 @@
 from typing import Dict, List
-from building import Building, add_detected_buildings_to_dict, discard_low_confidence_buildings, printJSON
+from building import Marker, add_detected_markers_to_dict, discard_low_confidence_markers, printJSON
 from detection import detect_markers
 from hud import draw_monitor_window, draw_status_window, handle_key_presses
 from image import buffer_to_array, sharpen_and_rotate_image
@@ -10,7 +10,10 @@ import math
 import json
 import socket
 
-buildingDict:Dict[int,Building] = {}
+print("table tracker")
+exit()
+
+buildingDict:Dict[int,Marker] = {}
 
 loop = 16
 exposure = 8000
@@ -41,7 +44,7 @@ HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
 PORT = 8052        # Port to listen on (non-privileged ports are > 1023)
 
 
-def send_detected_buildings(socket:socket.socket, buildingDict:Dict[int,Building], last_send_time:float) -> None:
+def send_detected_buildings(socket:socket.socket, buildingDict:Dict[int,Marker], last_send_time:float) -> None:
     if (time.time() - last_send_time) > 0.05:
         jsonString= json.dumps(printJSON(buildingDict))
         socket.sendall(jsonString.encode('utf-8'))
@@ -75,10 +78,10 @@ while True:
                     if not ir_data:
                         continue
 
-                    discard_low_confidence_buildings(buildingDict, loopcount)
+                    discard_low_confidence_markers(buildingDict, loopcount)
                     ir_image = sharpen_and_rotate_image(buffer_to_array(ir_data.get_data()))
                     corners, ids, rejectedImgPoints  = detect_markers(ir_image)
-                    add_detected_buildings_to_dict(ids, "cameraId", corners, loopcount, buildingDict)
+                    add_detected_markers_to_dict(ids, "cameraId", corners, loopcount, buildingDict)
 
                     try:
                         send_detected_buildings(conn, buildingDict, lastSentTime)

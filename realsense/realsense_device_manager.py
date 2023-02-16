@@ -174,7 +174,17 @@ class DeviceManager:
         # Set the acquisition parameters
         sensor = pipeline_profile.get_device().first_depth_sensor()
         if sensor.supports(rs.option.emitter_enabled):
-            sensor.set_option(rs.option.emitter_enabled, 1 if enable_ir_emitter else 0)
+            #sensor.set_option(rs.option.emitter_enabled, 1 if enable_ir_emitter else 0)
+
+            # JAN JESSEN SETTINGS FROM TableTracker.py    
+            sensor.set_option(rs.option.emitter_enabled, 0)
+            sensor.set_option(rs.option.exposure, 10000)
+            sensor.set_option(rs.option.gain, 16)
+
+            print("exposure", pipeline_profile.get_device().first_depth_sensor().get_option(rs.option.exposure))
+            print("gain", pipeline_profile.get_device().first_depth_sensor().get_option(rs.option.gain))
+
+
         self._enabled_devices[device_serial] = (Device(pipeline, pipeline_profile, product_line))
 
     def enable_all_devices(self, enable_ir_emitter=False):

@@ -13,6 +13,7 @@ FRAMES_PER_SECOND = 30
 Frame = Iterable[Tuple[int, Any]]
 
 
+
 @lru_cache(1)
 def get_device_manager() -> DeviceManager:
     print("initializing realsense device manager")
@@ -21,6 +22,7 @@ def get_device_manager() -> DeviceManager:
         rs.stream.infrared, 1, 1280, 800, rs.format.y8, FRAMES_PER_SECOND
     )
     device_manager = DeviceManager(rs.context(), config)
+
     device_manager.enable_all_devices()
     print(f"Active device serial numbers: {device_manager.get_enabled_devices_ids()}")
     return device_manager

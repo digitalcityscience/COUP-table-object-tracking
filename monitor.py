@@ -1,4 +1,4 @@
-from building import map_detected_buildings
+from marker import map_detected_markers
 from camera import poll_frame_data
 from detection import detect_markers
 from hud import draw_monitor_window, draw_status_window
@@ -10,6 +10,6 @@ while True:
         camera_id, image = frame
         ir_image = sharpen_and_rotate_image(buffer_to_array(image))
         corners, ids, rejectedImgPoints = detect_markers(ir_image)
-        buildingDict = map_detected_buildings(camera_id, ids, corners)
+        markerDict = map_detected_markers(camera_id, ids, corners)
         draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id)
-        draw_status_window(buildingDict, camera_id)
+        draw_status_window(markerDict, camera_id)
