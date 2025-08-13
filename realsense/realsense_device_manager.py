@@ -178,7 +178,7 @@ class DeviceManager:
 
             # JAN JESSEN SETTINGS FROM TableTracker.py    
             sensor.set_option(rs.option.emitter_enabled, 0)
-            sensor.set_option(rs.option.exposure, 10000)
+            sensor.set_option(rs.option.exposure, 6000)
             sensor.set_option(rs.option.gain, 16)
 
             print("exposure", pipeline_profile.get_device().first_depth_sensor().get_option(rs.option.exposure))

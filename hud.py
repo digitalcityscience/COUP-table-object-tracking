@@ -75,6 +75,7 @@ def draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id: int = 0
     cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
     cv2.imshow(window_name, ir_image)
     handle_key_presses()
+    return ir_image
 
 
 #[width, height]
