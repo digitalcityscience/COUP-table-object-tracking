@@ -93,9 +93,13 @@ def join_images_horizontally(image_000: np.ndarray, image_001: np.ndarray) -> np
     
     return joined
 
-def process_camera_streams():
-    """Main function to process camera streams and create joined output"""
+def setup_camera_transforms():
+    """
+    Setup camera transforms and parameters once at startup
     
+    Returns:
+        dict: Setup configuration containing transforms, dimensions, and parameters
+    """
     # Load calibration markers
     print("Loading calibration markers...")
     calibration_data = load_calibration_markers("calibration_markers.json")
@@ -106,7 +110,7 @@ def process_camera_streams():
     output_sizes = {}
     physical_dims = {}
     
-    for camera_id in ["000", "001"]:
+    for camera_id in calibration_data.keys():
         print(f"  Setting up camera {camera_id}...")
         transform_matrix, output_size = calculate_perspective_transform(calibration_data[camera_id])
         transforms[camera_id] = transform_matrix
@@ -135,8 +139,29 @@ def process_camera_streams():
     
     print(f"Unified scale: {unified_scale_x:.2f} px/cm (x), {unified_scale_y:.2f} px/cm (y)")
     print(f"Unified dimensions: {unified_width}x{unified_height} pixels")
+    print("=== Setup complete! ===")
     
-    print("\n=== Setup complete! Starting real-time processing ===")
+    return {
+        "transforms": transforms,
+        "output_sizes": output_sizes,
+        "physical_dims": physical_dims,
+        "unified_width": unified_width,
+        "unified_height": unified_height
+    }
+
+def process_and_join_streams(setup_config: dict):
+    """
+    Process camera streams and create joined output using pre-calculated setup
+    
+    Args:
+        setup_config: Configuration dictionary from setup_camera_transforms()
+    """
+    transforms = setup_config["transforms"]
+    output_sizes = setup_config["output_sizes"]
+    unified_width = setup_config["unified_width"]
+    unified_height = setup_config["unified_height"]
+    
+    print("Starting real-time processing...")
     print("Press Ctrl+C to quit")
     
     # Store frames for joining
@@ -186,6 +211,14 @@ def process_camera_streams():
         print("\nInterrupted by user")
     finally:
         cv2.destroyAllWindows()
+
+def process_camera_streams():
+    """Main function to process camera streams and create joined output"""
+    # Setup phase
+    setup_config = setup_camera_transforms()
+    
+    # Processing phase
+    process_and_join_streams(setup_config)
 
 if __name__ == "__main__":
     process_camera_streams() 
