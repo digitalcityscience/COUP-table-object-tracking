@@ -73,44 +73,7 @@ def apply_perspective_transform(image: np.ndarray, transform_matrix: np.ndarray,
     """Apply perspective transform to image"""
     return cv2.warpPerspective(image, transform_matrix, output_size)
 
-def normalize_scale(images: Dict[str, np.ndarray], physical_dims: Dict[str, Tuple[float, float]]) -> Dict[str, np.ndarray]:
-    """
-    Normalize images to have the same scale (pixels per cm)
-    
-    Args:
-        images: Dictionary of camera_id -> transformed image
-        physical_dims: Dictionary of camera_id -> (width_cm, height_cm)
-    
-    Returns:
-        Dictionary of camera_id -> rescaled image
-    """
-    # Calculate pixels per cm for each camera
-    scales = {}
-    for camera_id, image in images.items():
-        h, w = image.shape[:2]
-        phys_w, phys_h = physical_dims[camera_id]
-        scale_x = w / phys_w
-        scale_y = h / phys_h
-        scales[camera_id] = (scale_x, scale_y)
-        print(f"Camera {camera_id}: {scale_x:.2f} px/cm (x), {scale_y:.2f} px/cm (y)")
-    
-    # Find the minimum scale to ensure all images fit
-    min_scale_x = min(scale[0] for scale in scales.values())
-    min_scale_y = min(scale[1] for scale in scales.values())
-    
-    print(f"Using unified scale: {min_scale_x:.2f} px/cm (x), {min_scale_y:.2f} px/cm (y)")
-    
-    # Rescale all images to the same scale
-    normalized_images = {}
-    for camera_id, image in images.items():
-        phys_w, phys_h = physical_dims[camera_id]
-        new_width = int(phys_w * min_scale_x)
-        new_height = int(phys_h * min_scale_y)
-        
-        normalized_images[camera_id] = cv2.resize(image, (new_width, new_height))
-        print(f"Camera {camera_id}: resized to {new_width}x{new_height}")
-    
-    return normalized_images
+
 
 def join_images_horizontally(image_000: np.ndarray, image_001: np.ndarray) -> np.ndarray:
     """Join two images horizontally (000 on left, 001 on right)"""
@@ -137,27 +100,47 @@ def process_camera_streams():
     print("Loading calibration markers...")
     calibration_data = load_calibration_markers("calibration_markers.json")
     
-    # Calculate perspective transforms for both cameras
+    # === OPTIMIZATION: Calculate transforms ONCE at startup ===
+    print("Calculating perspective transforms (one-time setup)...")
     transforms = {}
     output_sizes = {}
     physical_dims = {}
     
     for camera_id in ["000", "001"]:
-        print(f"\nProcessing camera {camera_id}...")
+        print(f"  Setting up camera {camera_id}...")
         transform_matrix, output_size = calculate_perspective_transform(calibration_data[camera_id])
         transforms[camera_id] = transform_matrix
         output_sizes[camera_id] = output_size
         
-        # Calculate physical dimensions
+        # Calculate physical dimensions (add 6cm for the 3cm border on each side)
         markers = calibration_data[camera_id]["calibration_markers"]
         physical_points = [marker["physical_position"] for marker in markers.values()]
         physical_points = np.array(physical_points)
-        phys_w = max(physical_points[:, 0]) - min(physical_points[:, 0])
-        phys_h = max(physical_points[:, 1]) - min(physical_points[:, 1])
+        marker_w = max(physical_points[:, 0]) - min(physical_points[:, 0])
+        marker_h = max(physical_points[:, 1]) - min(physical_points[:, 1])
+        # Full table is marker area + 6cm (3cm border on each side)
+        phys_w = marker_w + 6
+        phys_h = marker_h + 6
         physical_dims[camera_id] = (phys_w, phys_h)
+        
+        print(f"    Transform matrix calculated: {output_size[0]}x{output_size[1]} output")
     
-    print("\nStarting camera stream processing...")
-    print("Press 'q' to quit, 's' to save current frame")
+    # Pre-calculate scale normalization parameters
+    print("Pre-calculating scale normalization...")
+    # Since both tables are the same size, we can use a fixed scale
+    unified_scale_x = output_sizes["000"][0] / physical_dims["000"][0]  # pixels per cm
+    unified_scale_y = output_sizes["000"][1] / physical_dims["000"][1]  # pixels per cm
+    unified_width = int(physical_dims["000"][0] * unified_scale_x)
+    unified_height = int(physical_dims["000"][1] * unified_scale_y)
+    
+    print(f"Unified scale: {unified_scale_x:.2f} px/cm (x), {unified_scale_y:.2f} px/cm (y)")
+    print(f"Unified dimensions: {unified_width}x{unified_height} pixels")
+    
+    print("\n=== Setup complete! Starting real-time processing ===")
+    print("Press Ctrl+C to quit")
+    
+    # Store frames for joining
+    current_frames = {}
     
     try:
         frame_count = 0
@@ -165,73 +148,39 @@ def process_camera_streams():
             # Process the frame
             processed_frame = sharpen_and_rotate_image(frame_data)
             
-            # Apply perspective transform
+            # Apply perspective transform (fast - just matrix multiplication!)
             if camera_id in transforms:
-                transformed = apply_perspective_transform(
+                transformed = cv2.warpPerspective(
                     processed_frame, 
                     transforms[camera_id], 
                     output_sizes[camera_id]
                 )
                 
-                # Save individual transformed frame
-                cv2.imwrite(f"transformed_{camera_id}.png", transformed)
+                # Normalize to unified scale (fast resize)
+                normalized = cv2.resize(transformed, (unified_width, unified_height))
                 
-                # Show individual camera view
+                # Store current frame
+                current_frames[camera_id] = normalized
+                
+                # Show individual camera views
                 cv2.imshow(f"Camera {camera_id} - Original", processed_frame)
-                cv2.imshow(f"Camera {camera_id} - Transformed", transformed)
+                cv2.imshow(f"Camera {camera_id} - Transformed", normalized)
             
             frame_count += 1
             
-            # Every few frames, create joined image if we have both cameras
-            if frame_count % 2 == 0:  # Process every other frame to get both cameras
-                try:
-                    # Load the two most recent transformed images
-                    img_000 = cv2.imread("transformed_000.png", cv2.IMREAD_GRAYSCALE)
-                    img_001 = cv2.imread("transformed_001.png", cv2.IMREAD_GRAYSCALE)
-                    
-                    if img_000 is not None and img_001 is not None:
-                        # Normalize scales
-                        images = {"000": img_000, "001": img_001}
-                        normalized_images = normalize_scale(images, physical_dims)
-                        
-                        # Join images
-                        joined = join_images_horizontally(
-                            normalized_images["000"], 
-                            normalized_images["001"]
-                        )
-                        
-                        # Save and show joined result
-                        cv2.imwrite("latest_joined.png", joined)
-                        cv2.imshow("Joined View", joined)
-                        
-                        print(f"Frame {frame_count}: Updated joined view")
+            # Create joined image when we have both cameras
+            if len(current_frames) == 2 and "000" in current_frames and "001" in current_frames:
+                # Join images (camera 000 on left, 001 on right)
+                joined = join_images_horizontally(current_frames["000"], current_frames["001"])
                 
-                except Exception as e:
-                    print(f"Error creating joined image: {e}")
+                # Show joined result
+                cv2.imshow("Joined View", joined)
+                
+                if frame_count % 30 == 0:  # Print status every 30 frames
+                    print(f"Frame {frame_count}: Processing at ~30 FPS")
             
-            # Handle key presses
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                print("Quitting...")
-                break
-            elif key == ord('s'):
-                timestamp = int(time.time())
-                # Save current state with timestamp
-                try:
-                    img_000 = cv2.imread("transformed_000.png", cv2.IMREAD_GRAYSCALE)
-                    img_001 = cv2.imread("transformed_001.png", cv2.IMREAD_GRAYSCALE)
-                    joined = cv2.imread("latest_joined.png", cv2.IMREAD_GRAYSCALE)
-                    
-                    if img_000 is not None:
-                        cv2.imwrite(f"saved_camera_000_{timestamp}.png", img_000)
-                    if img_001 is not None:
-                        cv2.imwrite(f"saved_camera_001_{timestamp}.png", img_001)
-                    if joined is not None:
-                        cv2.imwrite(f"saved_joined_{timestamp}.png", joined)
-                    
-                    print(f"Saved current frame set with timestamp {timestamp}")
-                except Exception as e:
-                    print(f"Error saving images: {e}")
+            # Minimal key handling for OpenCV windows
+            cv2.waitKey(1)
     
     except KeyboardInterrupt:
         print("\nInterrupted by user")
