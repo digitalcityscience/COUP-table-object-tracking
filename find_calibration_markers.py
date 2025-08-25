@@ -5,9 +5,46 @@ from typing import Dict, List, Tuple, Optional
 import json
 import os
 
+def check_existing_calibration(file_path: str = "calibration_markers.json") -> bool:
+    """
+    Check if calibration file exists with valid pixel positions
+    
+    Returns:
+        True if calibration exists and is complete, False otherwise
+    """
+    if not os.path.exists(file_path):
+        print(f"No existing calibration file found at {file_path}")
+        return False
+    
+    try:
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+        
+        # Check if all cameras have pixel positions
+        for camera_id, camera_data in data.items():
+            if "calibration_markers" not in camera_data:
+                return False
+            
+            for position, marker_info in camera_data["calibration_markers"].items():
+                if marker_info.get("pixel_position") is None:
+                    print(f"Camera {camera_id} marker at {position} missing pixel position")
+                    return False
+        
+        print(f"Found complete calibration for {len(data)} cameras")
+        return True
+        
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f"Error reading calibration file: {e}")
+        return False
+
+
+
 def find_calibration_markers(cameras_config: Dict, timeout: int = 6) -> Dict:
     """
     Find calibration markers in camera streams and save their positions.
+    
+    First checks if calibration already exists and verifies markers are still visible.
+    If existing calibration is found but no markers are visible, aborts.
     
     Args:
         cameras_config: Dictionary containing camera configurations with exactly 4 calibration markers per camera
@@ -27,6 +64,18 @@ def find_calibration_markers(cameras_config: Dict, timeout: int = 6) -> Dict:
     Returns:
         Updated cameras_config dictionary with pixel positions filled in
     """
+    # Check if calibration already exists
+    if check_existing_calibration():
+        print("Found existing calibration file with complete pixel positions.")
+        
+        # Load existing calibration
+        with open("calibration_markers.json", 'r') as f:
+            existing_config = json.load(f)
+        
+        print("✓ Using existing calibration - calibration markers no longer need to be visible")
+        return existing_config
+    
+    print("No existing calibration found. Starting fresh calibration...")
     from detection import detect_markers
     from image import sharpen_and_rotate_image
     from mock_camera import poll_frame_data

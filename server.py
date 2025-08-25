@@ -1,22 +1,24 @@
 import asyncio
 import socket
+import signal
+import sys
 
 from marker import Markers, map_detected_markers
-from camera import poll_frame_data
-from tracker import track, track_v2
+from tracker import track_v2
 from time import time_ns
 from detection import detect_markers
 from hud import draw_monitor_window, draw_status_window
-from image import buffer_to_array, sharpen_and_rotate_image
-
-
+from find_calibration_markers import find_calibration_markers
+from camera_stitching import setup_camera_transforms, process_and_join_streams
+import cv2
 
 from collections import defaultdict
 from typing import Dict, List
 import os
 from datetime import datetime
 
-
+# Global variable for stitching setup
+stitching_setup = None
 
 socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 SERVER_SETTINGS = ("localhost", 8052)
@@ -27,98 +29,53 @@ socket.setblocking(False)
 loop = asyncio.new_event_loop()
 
 
-class SimpleMarkerTracker:
-    """Simple tracker that works with the existing buildingDict"""
+def initialize_camera_stitching():
+    """Initialize camera stitching setup"""
+    global stitching_setup
     
-    def __init__(self, output_dir: str = "marker_stats"):
-        self.output_dir = output_dir
-        # Structure: {marker_id: {camera_id: {'positions': [(x, y)], 'count': int}}}
-        self.marker_data = defaultdict(lambda: defaultdict(lambda: {'positions': [], 'count': 0}))
-        
-        # Create output directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
+    print("=== Initializing Camera Stitching System ===")
     
-    def add_frame_data(self, camera_id: str, building_dict: Dict[int, any]):
-        """Add data from buildingDict for this frame"""
-
-        markers_of_interest = []  # TODO what are the markers in the corners?
-
-        for marker_id, marker in building_dict.items():
-
-            if marker_id not in markers_of_interest:
-                continue
-
-            # Extract position (assuming marker.position has x, y attributes)
-            x, y = marker.position.x, marker.position.y
-            
-            # Add to tracking data
-            self.marker_data[marker_id][camera_id]['positions'].append((x, y))
-            self.marker_data[marker_id][camera_id]['count'] += 1
-    
-    def calculate_stats(self, marker_id: int, camera_id: str) -> Dict:
-        """Calculate simple statistics for a marker"""
-        data = self.marker_data[marker_id][camera_id]
-        positions = data['positions']
-        
-        if len(positions) < 2:
-            return None
-        
-        # Extract coordinates
-        x_coords = [pos[0] for pos in positions]
-        y_coords = [pos[1] for pos in positions]
-        
-        # Calculate statistics
-        stats = {
-            'marker_id': marker_id,
-            'camera_id': camera_id,
-            'total_detections': len(positions),
-            'min_position': {'x': min(x_coords), 'y': min(y_coords)},
-            'max_position': {'x': max(x_coords), 'y': max(y_coords)},
-            'mean_position': {'x': np.mean(x_coords), 'y': np.mean(y_coords)},
-            'std_deviation': {'x': np.std(x_coords), 'y': np.std(y_coords)},
-            'position_range': {
-                'x': max(x_coords) - min(x_coords),
-                'y': max(y_coords) - min(y_coords)
+    # Define calibration markers configuration 
+    cameras_config = {
+        "000": {
+            "calibration_markers": {
+                "top_left": {"id": "48", "pixel_position": None, "physical_position": [3, 3]},
+                "top_right": {"id": "44", "pixel_position": None, "physical_position": [77, 3]},
+                "bottom_right": {"id": "41", "pixel_position": None, "physical_position": [77, 77]},
+                "bottom_left": {"id": "43", "pixel_position": None, "physical_position": [3, 77]}
+            }
+        },
+        "001": {
+            "calibration_markers": {
+                "top_left": {"id": "68", "pixel_position": None, "physical_position": [83, 3]},
+                "top_right": {"id": "62", "pixel_position": None, "physical_position": [157, 3]},
+                "bottom_right": {"id": "69", "pixel_position": None, "physical_position": [157, 77]},
+                "bottom_left": {"id": "999", "pixel_position": [357, 762], "physical_position": [83, 77]}
             }
         }
-        
-        # Simple stability score (lower = more stable)
-        x_stability = stats['std_deviation']['x'] / max(stats['position_range']['x'], 1.0)
-        y_stability = stats['std_deviation']['y'] / max(stats['position_range']['y'], 1.0)
-        stats['stability_score'] = np.sqrt(x_stability**2 + y_stability**2)
-        
-        # Add timestamp
-        stats['timestamp'] = datetime.now().isoformat()
-        
-        return stats
+    }
     
-    def write_stats_files(self):
-        """Write statistics files for all tracked markers"""
-        written_files = []
+    try:
+        # Step 1: Run calibration setup
+        print("Step 1: Running calibration setup...")
+        calibrated_config = find_calibration_markers(cameras_config)
         
-        for marker_id in self.marker_data:
-            for camera_id in self.marker_data[marker_id]:
-                stats = self.calculate_stats(marker_id, camera_id)
-                
-                if stats is None:
-                    continue
-                
-                filename = f"marker_{marker_id}_camera_{camera_id}.json"
-                filepath = os.path.join(self.output_dir, filename)
-                
-                with open(filepath, 'w') as f:
-                    json.dump(stats, f, indent=2)
-                
-                written_files.append(filepath)
-                print(f"Stats written: Marker {marker_id} (Camera {camera_id}) - "
-                      f"{stats['total_detections']} detections, "
-                      f"stability: {stats['stability_score']:.3f}")
+        # Step 2: Setup camera transforms
+        print("Step 2: Setting up camera transforms...")
+        stitching_setup = setup_camera_transforms()
         
-        return written_files
-
+        print("✓ Camera stitching system initialized successfully!")
+        return stitching_setup
+        
+    except Exception as e:
+        print(f"✗ Failed to initialize camera stitching: {e}")
+        raise
 
 
 async def main():
+    # Initialize camera stitching system at startup
+    global stitching_setup
+    stitching_setup = initialize_camera_stitching()
     while True:
         connection, client_address = await loop.sock_accept(socket)
         print(f"Connection from: {client_address}")
@@ -126,42 +83,50 @@ async def main():
 
 
 async def send_tracking_matches(connection):
+    global stitching_setup
     markers_holder = Markers()
-    marker_tracker = SimpleMarkerTracker()
     last_sent = time_ns()
-    for frame in poll_frame_data():
-        camera_id, image = frame
-        ir_image = sharpen_and_rotate_image(buffer_to_array(image))
-        corners, ids, rejectedImgPoints = detect_markers(ir_image)
-        buildingDict = map_detected_markers(camera_id, ids, corners)
-
-        # Add this line to track the markers
-        marker_tracker.add_frame_data(camera_id, buildingDict)    
-
-        draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id)
-        draw_status_window(buildingDict, camera_id)
-
-        markers_holder.addMarkers(track_v2(frame))
+    
+    # Iterate over stitched images from process_and_join_streams
+    for stitched_image in process_and_join_streams(stitching_setup):
+        # Run marker detection on stitched image
+        corners, ids, rejectedImgPoints = detect_markers(stitched_image) # runs detection.
+        buildingDict = map_detected_markers("stitched", ids, corners)
+        
+        # Show stitched result with markers
+        draw_monitor_window(stitched_image, corners, rejectedImgPoints, "stitched")
+        draw_status_window(buildingDict, "stitched")
+        
+        # Create pseudo-frame for tracking
+        stitched_frame = ("stitched", stitched_image)
+        markers_holder.addMarkers(track_v2(stitched_frame))  # TODO detection is run twice. already in dobos code.
+        
+        # Send data to Unity client
         if (time_ns() - last_sent > 200_000_000):
             markers_json = markers_holder.toJSON()
             print("Sending to unity:", markers_json)
             last_sent = time_ns()
             markers_holder.clear()
             await loop.sock_sendall(connection, markers_json.encode("utf-8"))
-            
-
-            
-async def test():
-    markers_holder = Markers()
-    last_sent = time_ns()
-    for frame in poll_frame_data():
-        markers_holder.addMarkers(track_v2(frame))
-        if (time_ns() - last_sent > 200_000_000):
-            markers_json = markers_holder.toJSON()
-            print("Sending to unity:", markers_json)
-            last_sent = time_ns()
-            markers_holder.clear()
-            markers_json.encode("utf-8")
 
 
-loop.run_until_complete(main())
+def shutdown_handler(sig, frame):
+    """Handle graceful shutdown"""
+    print("\nShutting down server...")
+    print("Closing socket...")
+    socket.close()
+    print("Stopping event loop...")
+    loop.stop()
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, shutdown_handler)  # Ctrl+C
+signal.signal(signal.SIGTERM, shutdown_handler)  # Termination signal
+
+try:
+    loop.run_until_complete(main())
+except KeyboardInterrupt:
+    shutdown_handler(None, None)
+finally:
+    socket.close()
+    loop.close()

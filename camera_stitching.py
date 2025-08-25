@@ -288,10 +288,13 @@ def setup_camera_transforms():
 
 def process_and_join_streams(setup_config: dict):
     """
-    Process camera streams and create joined output using pre-calculated setup
+    Process camera streams and yield joined output using pre-calculated setup
     
     Args:
         setup_config: Configuration dictionary from setup_camera_transforms()
+        
+    Yields:
+        Stitched images as they are created
     """
     transforms = setup_config["transforms"]
     output_sizes = setup_config["output_sizes"]
@@ -301,63 +304,60 @@ def process_and_join_streams(setup_config: dict):
     
     print("Starting real-time processing...")
     print(f"Expected cameras: {[cam_id for cam_id in layout.values() if cam_id]}")
-    print("Press Ctrl+C to quit")
     
     # Store frames for joining
-    current_frames = {}
+    frame_buffer = {}
+    expected_cameras = set(cam_id for cam_id in layout.values() if cam_id)
     
-    try:
-        frame_count = 0
-        for camera_id, frame_data in poll_frame_data():
-            # Process the frame
-            processed_frame = sharpen_and_rotate_image(frame_data)
+    frame_count = 0
+    for camera_id, frame_data in poll_frame_data():
+        # Process the frame
+        processed_frame = sharpen_and_rotate_image(frame_data)
+        
+        # Apply perspective transform (fast - just matrix multiplication!)
+        if camera_id in transforms:
+            transformed = cv2.warpPerspective(
+                processed_frame, 
+                transforms[camera_id], 
+                output_sizes[camera_id]
+            )
             
-            # Apply perspective transform (fast - just matrix multiplication!)
-            if camera_id in transforms:
-                transformed = cv2.warpPerspective(
-                    processed_frame, 
-                    transforms[camera_id], 
-                    output_sizes[camera_id]
-                )
-                
-                # Normalize to unified scale (fast resize)
-                normalized = cv2.resize(transformed, (unified_width, unified_height))
-                
-                # Store current frame
-                current_frames[camera_id] = normalized
-                
-                # Show individual camera views
-                cv2.imshow(f"Camera {camera_id} - Original", processed_frame)
-                cv2.imshow(f"Camera {camera_id} - Transformed", normalized)
+            # Normalize to unified scale (fast resize)
+            normalized = cv2.resize(transformed, (unified_width, unified_height))
             
-            frame_count += 1
+            # Store current frame in buffer
+            frame_buffer[camera_id] = normalized
             
+            # Show individual camera views
+            #cv2.imshow(f"Camera {camera_id} - Original", processed_frame)
+            #cv2.imshow(f"Camera {camera_id} - Transformed", normalized)
+        
+        # Check if we have frames from all expected cameras
+        if expected_cameras.issubset(set(frame_buffer.keys())):
             # Create joined image using flexible layout
-            # We'll create the stitched image even if some cameras are missing
-            if current_frames:  # If we have at least one camera
-                final_stitched = create_final_stitched_image(
-                    current_frames, 
-                    layout, 
-                    unified_width, 
-                    unified_height
-                )
-                
-                if final_stitched is not None:
-                    # Show final stitched result
-                    cv2.imshow("Stitched View", final_stitched)
-                
-                    if frame_count % 30 == 0:  # Print status every 30 frames
-                        active_cameras = len(current_frames)
-                        total_expected = len([cam for cam in layout.values() if cam])
-                        print(f"Frame {frame_count}: Processing {active_cameras}/{total_expected} cameras at ~30 FPS")
+            final_stitched = create_final_stitched_image(
+                frame_buffer, 
+                layout, 
+                unified_width, 
+                unified_height
+            )
             
-            # Minimal key handling for OpenCV windows
-            cv2.waitKey(1)
-    
-    except KeyboardInterrupt:
-        print("\nInterrupted by user")
-    finally:
-        cv2.destroyAllWindows()
+            if final_stitched is not None:
+                frame_count += 1
+                
+                if frame_count % 30 == 0:  # Print status every 30 frames
+                    active_cameras = len(frame_buffer)
+                    total_expected = len([cam for cam in layout.values() if cam])
+                    print(f"Frame {frame_count}: Processing {active_cameras}/{total_expected} cameras at ~30 FPS")
+                
+                # Yield the stitched image
+                yield final_stitched
+            
+            # Clear buffer after processing
+            frame_buffer.clear()
+        
+        # Minimal key handling for OpenCV windows
+        cv2.waitKey(1)
 
 def process_camera_streams():
     """Main function to process camera streams and create joined output"""
@@ -365,7 +365,10 @@ def process_camera_streams():
     setup_config = setup_camera_transforms()
     
     # Processing phase
-    process_and_join_streams(setup_config)
+    for stitched_image in process_and_join_streams(setup_config):
+        # The server will handle displaying the stitched image
+        # For now, we just yield it
+        pass
 
 if __name__ == "__main__":
     process_camera_streams() 
