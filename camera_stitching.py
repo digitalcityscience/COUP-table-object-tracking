@@ -35,11 +35,17 @@ def calculate_perspective_transform(markers: Dict) -> Tuple[np.ndarray, Tuple[in
     src_points = np.array(src_points, dtype=np.float32)
     physical_points = np.array(physical_points, dtype=np.float32)
     
-    # Calculate physical dimensions (in cm)
-    physical_width = max(physical_points[:, 0]) - min(physical_points[:, 0])
-    physical_height = max(physical_points[:, 1]) - min(physical_points[:, 1])
+    # Calculate physical dimensions (in cm) - this is just between markers
+    marker_width = max(physical_points[:, 0]) - min(physical_points[:, 0])
+    marker_height = max(physical_points[:, 1]) - min(physical_points[:, 1])
     
-    print(f"Physical dimensions: {physical_width}cm x {physical_height}cm")
+    # Add 3cm on each side to get the full table dimensions
+    # Markers are 3cm from table edges, so table is 6cm larger in each direction
+    physical_width = marker_width + 6  # 3cm on each side
+    physical_height = marker_height + 6  # 3cm on each side
+    
+    print(f"Marker dimensions: {marker_width}cm x {marker_height}cm")
+    print(f"Full table dimensions: {physical_width}cm x {physical_height}cm")
     
     # Define target points for a perfect rectangle (we'll scale this appropriately)
     # Use a scale factor to get reasonable pixel dimensions
@@ -47,11 +53,15 @@ def calculate_perspective_transform(markers: Dict) -> Tuple[np.ndarray, Tuple[in
     target_width = int(physical_width * scale_factor)
     target_height = int(physical_height * scale_factor)
     
+    # Calculate the offset to center the markers in the enlarged area
+    # Markers should be 3cm (30 pixels at scale_factor=10) from each edge
+    offset = 3 * scale_factor
+    
     dst_points = np.array([
-        [0, 0],                           # top_left
-        [target_width, 0],                # top_right  
-        [target_width, target_height],    # bottom_right
-        [0, target_height]                # bottom_left
+        [offset, offset],                                    # top_left marker position
+        [target_width - offset, offset],                     # top_right marker position  
+        [target_width - offset, target_height - offset],     # bottom_right marker position
+        [offset, target_height - offset]                     # bottom_left marker position
     ], dtype=np.float32)
     
     # Calculate perspective transform matrix
