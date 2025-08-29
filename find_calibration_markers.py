@@ -4,6 +4,7 @@ import time
 from typing import Dict, List, Tuple, Optional
 import json
 import os
+import math
 
 def check_existing_calibration(file_path: str = "calibration_markers.json") -> bool:
     """
@@ -223,6 +224,8 @@ def find_calibration_markers(cameras_config: Dict, timeout: int = 6) -> Dict:
         print(f"Warning: Not all markers were found. Missing: {missing_markers}")
     else:
         print(f"Successfully found all {total_markers} calibration markers!")
+
+
     
     # Save the results to a file
     with open("calibration_markers.json", "w") as f:
@@ -266,6 +269,7 @@ def find_calibration_markers(cameras_config: Dict, timeout: int = 6) -> Dict:
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
         
         final_annotated_images[camera_id] = color_frame
+        
     
     # Save the final annotated images
     for camera_id, image in final_annotated_images.items():
@@ -299,27 +303,151 @@ def find_calibration_markers(cameras_config: Dict, timeout: int = 6) -> Dict:
         cv2.imwrite("calibration_visualizations/combined_calibration.png", combined)
         print("Saved combined calibration visualization")
     
+    # Run distortion analysis on the calibrated markers
+    print("\n" + "="*50)
+    print("Running distortion analysis...")
+    try:
+        from distortion_analysis import analyze_camera_distortion
+        distortion_results = analyze_camera_distortion(cameras_config)
+        print("Distortion analysis complete!")
+        print("Check the calibration_visualizations/ directory for detailed reports.")
+    except ImportError:
+        print("Warning: Could not import distortion_analysis module. Skipping distortion analysis.")
+    except Exception as e:
+        print(f"Warning: Distortion analysis failed: {e}")
+        print("Continuing without distortion analysis...")
+    
+    return cameras_config
+
+def get_available_camera_ids():
+    """
+    Try to get camera IDs from device manager, fallback to manual input
+    """
+    try:
+        # Try to import and use real device manager
+        from realsense.realsense_device_manager import DeviceManager
+        import pyrealsense2 as rs
+        
+        # Setup device manager
+        c = rs.config()
+        c.enable_stream(rs.stream.infrared, 1, 1280, 720, rs.format.y8, 6)
+        device_manager = DeviceManager(rs.context(), c)
+        device_manager.enable_all_devices()
+        
+        # Try to get connected device IDs
+        available_ids = device_manager.get_enabled_devices_ids()
+        if available_ids:
+            print(f"Found {len(available_ids)} cameras: {available_ids}")
+            return [id[-3:] for id in available_ids]
+        else:
+            print("No cameras detected via device manager")
+            raise Exception("No cameras detected")
+
+            
+    except (ImportError, Exception) as e:
+        print(f"Could not access device manager: {e}")
+        print("Make sure the cameras are connected and powered on")
+        raise Exception("No cameras detected")
+
+def show_camera_streams_for_identification(camera_id):
+    """
+    Show camera streams to help user identify which camera is which
+    """
+    print("Showing camera streams for identification...")
+    print("Press 'q' to stop viewing and continue with setup")
+    
+    try:
+        from mock_camera import poll_frame_data
+        from image import sharpen_and_rotate_image
+        
+        active_cameras = {}
+        
+        # Show streams for a few seconds to let user see each camera
+        for camera_id, frame_data in poll_frame_data():
+            if camera_id != camera_id:
+                continue
+            processed_frame = sharpen_and_rotate_image(frame_data)
+            active_cameras[camera_id] = processed_frame
+            
+            # Show the camera view
+            cv2.imshow(f"Camera {camera_id} - Enter calibration marker ids for this camera", processed_frame)
+            time.sleep(4)
+
+        cv2.destroyAllWindows()
+        return list(active_cameras.keys())
+        
+    except Exception as e:
+        print(f"Could not show camera streams: {e}")
+        return None
+
+def prompt_calibration_setup() -> Dict:
+    """
+    Prompt for basic calibration data and create cameras config
+    """
+    print("No existing calibration found. Setting up new calibration...")
+    
+    # Get table size
+    table_width = float(input("Table width (cm): "))
+    table_height = float(input("Table height (cm): "))
+    
+    # Get marker offset
+    marker_offset = float(input("Distance from marker to table edge (cm): "))
+    
+    # Try to get camera IDs automatically
+    camera_ids = get_available_camera_ids()
+    
+    # Get marker IDs for each camera
+    cameras_config = {}
+    
+    for camera_id in camera_ids:
+        # Show camera streams to help identify
+        show_camera_streams_for_identification(camera_id)
+        
+        print(f"Marker IDs for camera {camera_id}:")
+        marker_ids = {}
+        for pos in ["top_left", "top_right", "bottom_right", "bottom_left"]:
+            marker_id = input(f"  {pos} marker ID: ").strip()
+            if not marker_id:
+                raise ValueError(f"Marker ID for {pos} cannot be empty")
+            marker_ids[pos] = marker_id
+        
+        cameras_config[camera_id] = {
+            "calibration_markers": {
+                "top_left": {
+                    "id": marker_ids["top_left"],
+                    "pixel_position": None,
+                    "physical_position": [marker_offset, marker_offset]
+                },
+                "top_right": {
+                    "id": marker_ids["top_right"],
+                    "pixel_position": None,
+                    "physical_position": [table_width - marker_offset, marker_offset]
+                },
+                "bottom_right": {
+                    "id": marker_ids["bottom_right"],
+                    "pixel_position": None,
+                    "physical_position": [table_width - marker_offset, table_height - marker_offset]
+                },
+                "bottom_left": {
+                    "id": marker_ids["bottom_left"],
+                    "pixel_position": None,
+                    "physical_position": [marker_offset, table_height - marker_offset]
+                }
+            }
+        }
+    
     return cameras_config
 
 # Example usage
 if __name__ == "__main__":
-    # Example configuration with exactly 4 markers per camera
-    cameras = {
-        "000": {
-            "calibration_markers": {
-                "top_left": {"id": "48", "pixel_position": None, "physical_position": [3, 3]},
-                "top_right": {"id": "44", "pixel_position": None, "physical_position": [77, 3]},
-                "bottom_right": {"id": "41", "pixel_position": None, "physical_position": [77, 77]},
-                "bottom_left": {"id": "43", "pixel_position": None, "physical_position": [3, 77]}
-            }
-        },
-        "001": {
-            "calibration_markers": {
-                "top_left": {"id": "68", "pixel_position": None, "physical_position": [83, 3]},
-                "top_right": {"id": "62", "pixel_position": None, "physical_position": [157, 3]},
-                "bottom_right": {"id": "69", "pixel_position": None, "physical_position": [157, 77]},
-                "bottom_left": {"id": "999", "pixel_position": [357, 762], "physical_position": [83, 77]}
-            }
-        }
-    }
+    # Check if calibration already exists
+    if False:# check_existing_calibration():
+        print("Using existing calibration file...")
+        with open("calibration_markers.json", 'r') as f:
+            cameras = json.load(f)
+    else:
+        # No existing calibration - prompt user for configuration
+        cameras = prompt_calibration_setup()
+    
+    # Run calibration marker detection
     find_calibration_markers(cameras)
