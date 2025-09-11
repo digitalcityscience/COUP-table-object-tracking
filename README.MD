@@ -94,7 +94,7 @@ Detected calibration markers:
 
 Combined calibration view:
 
-![Combined calibration](calibration_visualizations/combined_calibration.png)
+![Combined calibration](calibration_visualizations/stitched_sample.png)
 
 Distortion reports (appear after you run calibration or `distortion_analysis.py`):
 
