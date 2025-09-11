@@ -23,6 +23,7 @@ Exported to `calibration_visualizations/`:
 - Per‑camera calibration visuals: `calibration_visualizations/camera_XXX_markers.png`
 - Combined calibration view: `calibration_visualizations/combined_calibration.png`
 - Distortion reports: `calibration_visualizations/camera_XXX_distortion_analysis.png`, `calibration_visualizations/distortion_summary.png`
+- Stitched result sample: `calibration_visualizations/stitched_sample.png`
 
 ## How to use it
 
@@ -83,6 +84,7 @@ Artifacts are exported to `calibration_visualizations/`:
 - `combined_calibration.png`: Side-by-side view of all cameras
 - `camera_XXX_distortion_analysis.png`: Per-camera distortion report (generated after running analysis)
 - `distortion_summary.png`: Overview comparison across cameras (generated after running analysis)
+- `stitched_sample.png`: Sample of stitched camera output (generated when server runs)
 
 ### Examples (exported)
 Detected calibration markers:

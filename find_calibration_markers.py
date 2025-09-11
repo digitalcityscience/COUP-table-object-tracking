@@ -277,32 +277,7 @@ def find_calibration_markers(cameras_config: Dict, timeout: int = 6) -> Dict:
         cv2.imwrite(output_path, image)
         print(f"Saved annotated marker visualization for camera {camera_id} to {output_path}")
     
-    # Create a combined visualization if we have multiple cameras
-    if len(final_annotated_images) > 1:
-        # Get dimensions
-        heights = [img.shape[0] for img in final_annotated_images.values()]
-        widths = [img.shape[1] for img in final_annotated_images.values()]
-        max_height = max(heights)
-        total_width = sum(widths)
-        
-        # Create combined image
-        combined = np.zeros((max_height, total_width, 3), dtype=np.uint8)
-        x_offset = 0
-        for camera_id, img in final_annotated_images.items():
-            h, w = img.shape[:2]
-            combined[0:h, x_offset:x_offset+w] = img
-            
-            # Add camera label
-            cv2.putText(combined, f"Camera {camera_id}", 
-                       (x_offset + 10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 1)
-            
-            x_offset += w
-        
-        # Save combined visualization
-        cv2.imwrite("calibration_visualizations/combined_calibration.png", combined)
-        print("Saved combined calibration visualization")
-    
+       
     # Run distortion analysis on the calibrated markers
     print("\n" + "="*50)
     print("Running distortion analysis...")

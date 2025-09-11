@@ -64,6 +64,20 @@ def initialize_camera_stitching():
         print("Step 2: Setting up camera transforms...")
         stitching_setup = setup_camera_transforms()
         
+        # Step 3: Export a sample stitched image
+        print("Step 3: Exporting stitched sample...")
+        try:
+            # Get one stitched frame as a sample
+            for stitched_image in process_and_join_streams(stitching_setup):
+                # Export the first stitched result as sample
+                os.makedirs("calibration_visualizations", exist_ok=True)
+                sample_path = "calibration_visualizations/stitched_sample.png"
+                cv2.imwrite(sample_path, stitched_image)
+                print(f"✓ Exported stitched sample to {sample_path}")
+                break  # Only export one sample, then continue
+        except Exception as e:
+            print(f"Warning: Could not export stitched sample: {e}")
+        
         print("✓ Camera stitching system initialized successfully!")
         return stitching_setup
         
@@ -76,6 +90,7 @@ async def main():
     # Initialize camera stitching system at startup
     global stitching_setup
     stitching_setup = initialize_camera_stitching()
+    
     while True:
         connection, client_address = await loop.sock_accept(socket)
         print(f"Connection from: {client_address}")
