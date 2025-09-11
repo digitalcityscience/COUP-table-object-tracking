@@ -8,7 +8,7 @@ This repo powers real‑time table object tracking using IR cameras (Intel RealS
 - Marker detection: Finds ArUco markers per frame and maps them to table/object identities.
 - Calibration: Uses 4 corner markers per camera to compute perspective transforms to a table‑aligned view.
 - Stitching: Warps each camera to table coordinates and joins them into a single image (1×2 or 2×2 layout).
-- Distortion analysis: Quantifies how “square” and centered the calibration is; exports annotated reports to guide camera positioning.
+- Distortion analysis: Quantifies how "square" and centered the calibration is; exports annotated reports to guide camera positioning.
 - Streaming: Runs a TCP server on localhost:8052, pushing fused marker updates for external clients (Unity).
 
 ### Key components
@@ -19,11 +19,10 @@ This repo powers real‑time table object tracking using IR cameras (Intel RealS
 - `detection.py`, `hud.py`, `tracker.py`: Marker detection, on‑screen HUD, and tracking utilities.
 
 ### Outputs you get
-Exported to the repo root and `calibration_visualizations/`:
+Exported to `calibration_visualizations/`:
 - Per‑camera calibration visuals: `calibration_visualizations/camera_XXX_markers.png`
 - Combined calibration view: `calibration_visualizations/combined_calibration.png`
 - Distortion reports: `calibration_visualizations/camera_XXX_distortion_analysis.png`, `calibration_visualizations/distortion_summary.png`
-- Stitching examples: `latest_stitched.png`, `latest_stitched_simple.png`, `latest_stitched_vis.png`, `final_output.png`, `stitched_output.png`, `stitched_result.png`
 
 ## How to use it
 
@@ -41,6 +40,7 @@ python server.py
 
 ### 3) Connect your client
 - Unity (COUP‑TangibleTable) or any TCP client can consume updates from `localhost:8052`.
+- Use `client.py` for basic testing of the TCP connection.
 
 ### 4) Inspect calibration and quality
 - Check `calibration_visualizations/` for:
@@ -52,10 +52,14 @@ python server.py
 ```
 python distortion_analysis.py
 ```
+- Test distortion analysis with sample data:
+```
+python test_distortion_analysis.py
+```
 - Explore stitching/processing logic in `camera_stitching.py`; calibration flow in `find_calibration_markers.py`.
 
 ### Tips
-- Keep the camera centered over the table; aim for “Good” (≥0.90) or “Excellent” (≥0.95) distortion scores.
+- Keep the camera centered over the table; aim for "Good" (≥0.90) or "Excellent" (≥0.95) distortion scores.
 - If the table/camera moves, re‑run calibration to refresh transforms and quality reports.
 
 ## How to run
@@ -103,43 +107,14 @@ python distortion_analysis.py
 
 ---
 
-## Stitching Process (overview)
-The stitching pipeline processes each camera stream with enhancement and perspective transforms and then joins them into a unified view.
+## Stitching Process
+The stitching pipeline processes each camera stream with enhancement (sharpening/rotation) and perspective transforms, then joins them into a unified view.
 
-### Step-by-step (sample exports)
-Raw IR frames:
-
-![Original 000](original_000.png)
-![Original 001](original_001.png)
-
-Enhanced (sharpened/rotated):
-
-![Enhanced 000](enhanced_000.png)
-![Enhanced 001](enhanced_001.png)
-
-Perspective transform results:
-
-![Transformed 000](transformed_000.png)
-![Transformed 001](transformed_001.png)
-
-Warped views:
-
-![Warped 000](warped_000.png)
-![Warped 001](warped_001.png)
-
-Stitching steps and results:
-
-![Stitched step 000](stitched_step_000.png)
-![Stitched step 001](stitched_step_001.png)
-
-Final stitched outputs (examples):
-
-![Latest stitched](latest_stitched.png)
-![Latest stitched (simple)](latest_stitched_simple.png)
-![Latest stitched (annotated)](latest_stitched_vis.png)
-![Final output](final_output.png)
-![Stitched output](stitched_output.png)
-![Stitched result](stitched_result.png)
+The system automatically:
+1. Loads calibration from `calibration_markers.json`
+2. Applies perspective transforms to align each camera to table coordinates
+3. Normalizes scales and stitches cameras into a single top-down view
+4. Runs real-time marker detection on the stitched result
 
 ---
 

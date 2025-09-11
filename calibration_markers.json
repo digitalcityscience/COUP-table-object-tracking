@@ -36,7 +36,10 @@
       },
       "bottom_left": {
         "id": "43",
-        "pixel_position": null,
+        "pixel_position": [
+          311.39794921875,
+          756.7340087890625
+        ],
         "physical_position": [
           3,
           77

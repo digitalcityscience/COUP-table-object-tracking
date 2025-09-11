@@ -7,6 +7,38 @@ import numpy
 
 from marker import Marker
 
+# Global storage for persistent marker positions
+persistent_markers = {}
+
+def update_persistent_markers(ids, corners):
+    """Update the persistent marker storage with newly detected markers"""
+    global persistent_markers
+    
+    if ids is not None and corners is not None:
+        for i, marker_corners in enumerate(corners):
+            if i < len(ids):
+                marker_id = ids[i][0]
+                # Calculate center of the marker
+                center = numpy.mean(marker_corners[0], axis=0).astype(int)
+                # Store the marker position
+                persistent_markers[marker_id] = tuple(center)
+
+def draw_persistent_marker_ids(ir_image, currently_detected_ids=None):
+    """Draw all previously detected marker IDs at their last known positions"""
+    global persistent_markers
+    
+    # Convert currently detected IDs to a set for fast lookup
+    if currently_detected_ids is not None:
+        current_set = set(currently_detected_ids.flatten()) if currently_detected_ids is not None else set()
+    else:
+        current_set = set()
+    
+    for marker_id, position in persistent_markers.items():
+        # Only draw if not currently detected (to avoid duplicates)
+        if marker_id not in current_set:
+            cv2.putText(ir_image, str(marker_id), position, 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
 
 def draw_status_window(markerDict: Dict[int, Marker], camera_id: int = 0) -> None:
     status = numpy.zeros((800, 335, 3), numpy.uint8)
@@ -54,13 +86,30 @@ def draw_status_window(markerDict: Dict[int, Marker], camera_id: int = 0) -> Non
     cv2.imshow(window_name, status)
 
 
-def draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id: int = 0) -> None:
+def draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id: int = 0, ids=None) -> None:
     # convert image to COLOR_GRAY2BGR so that we can draw with color over it
     ir_image = cv2.cvtColor(ir_image, cv2.COLOR_GRAY2BGR)
     ir_image = aruco.drawDetectedMarkers(ir_image, corners, borderColor=(0, 255, 0))
     ir_image = aruco.drawDetectedMarkers(
         ir_image, rejectedImgPoints, borderColor=(0, 0, 255)
     )
+    
+    # Update persistent marker storage with newly detected markers
+    update_persistent_markers(ids, corners)
+    
+    # Draw marker IDs if provided (currently detected markers in yellow)
+    if ids is not None and corners is not None:
+        for i, marker_corners in enumerate(corners):
+            if i < len(ids):
+                # Calculate center of the marker
+                center = numpy.mean(marker_corners[0], axis=0).astype(int)
+                # Draw the marker ID for currently detected markers
+                cv2.putText(ir_image, str(ids[i][0]), tuple(center), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+    
+    # Draw persistent marker IDs (previously detected markers in cyan)
+    draw_persistent_marker_ids(ir_image, ids)
+
     for i in range(0, ir_image.shape[0], 50):
         ir_image = cv2.line(
             ir_image, (0, i), (ir_image.shape[1], i), (255, 255, 255), 1
@@ -105,7 +154,7 @@ def handle_key_presses() -> None:
     if key == ord("4"):
         selectedPoint = 3
         print("point 4")
-    elif key is not -1:
+    elif key != -1:
         handleKeypress(key, selectedPoint)
 
 

@@ -78,21 +78,10 @@ class MockFrame:
 def get_device_manager() -> MockDeviceManager:
     print("initializing mock realsense device manager with MP4 files")
     
-    # short videos
-    short_video_files = [
-        "record_20250813_130932_cid_104.mp4",  
-        "record_20250813_130932_cid_863.mp4"
+    video_files = [
+        "recordings/camera_104_1755084551_mitMarker.mp4",  
+        "recordings/camera_863_1755084551_mitMarker.mp4"
     ]
-
-    # long videos
-    long_video_files = [
-        "record_20250813_131131_cid_104.mp4",
-        "record_20250813_131131_cid_863.mp4"  
-    ]
-    
-
-    # choose your input files
-    video_files = short_video_files
 
     device_manager = MockDeviceManager(video_files)
     print(f"Active device serial numbers: {device_manager.get_enabled_devices_ids()}")
