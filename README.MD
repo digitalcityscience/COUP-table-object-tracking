@@ -1,5 +1,63 @@
 # CityScope object tracking
 
+## Executive summary
+
+This repo powers real‑time table object tracking using IR cameras (Intel RealSense). It detects ArUco markers, calibrates multi‑camera views to a common table coordinate system, stitches cameras into a unified top‑down view, analyzes camera distortion/positioning quality, and streams tracking data to a client (e.g., Unity).
+
+### What it does
+- Marker detection: Finds ArUco markers per frame and maps them to table/object identities.
+- Calibration: Uses 4 corner markers per camera to compute perspective transforms to a table‑aligned view.
+- Stitching: Warps each camera to table coordinates and joins them into a single image (1×2 or 2×2 layout).
+- Distortion analysis: Quantifies how “square” and centered the calibration is; exports annotated reports to guide camera positioning.
+- Streaming: Runs a TCP server on localhost:8052, pushing fused marker updates for external clients (Unity).
+
+### Key components
+- `server.py`: Entry point; runs calibration, sets up stitching, processes streams, serves tracking data.
+- `find_calibration_markers.py`: Detects 4 calibration markers per camera; exports per‑camera visuals.
+- `camera_stitching.py`: Computes perspective transforms, normalizes scale, and stitches camera views.
+- `distortion_analysis.py`: Rates calibration quality and exports per‑camera and summary reports.
+- `detection.py`, `hud.py`, `tracker.py`: Marker detection, on‑screen HUD, and tracking utilities.
+
+### Outputs you get
+Exported to the repo root and `calibration_visualizations/`:
+- Per‑camera calibration visuals: `calibration_visualizations/camera_XXX_markers.png`
+- Combined calibration view: `calibration_visualizations/combined_calibration.png`
+- Distortion reports: `calibration_visualizations/camera_XXX_distortion_analysis.png`, `calibration_visualizations/distortion_summary.png`
+- Stitching examples: `latest_stitched.png`, `latest_stitched_simple.png`, `latest_stitched_vis.png`, `final_output.png`, `stitched_output.png`, `stitched_result.png`
+
+## How to use it
+
+### 1) Install dependencies
+```
+pip install -r requirements.txt
+```
+
+### 2) Run the server
+```
+python server.py
+```
+- Performs/loads calibration, initializes stitching, and starts streaming on `localhost:8052`.
+- A debug monitor shows stitched output and detected markers.
+
+### 3) Connect your client
+- Unity (COUP‑TangibleTable) or any TCP client can consume updates from `localhost:8052`.
+
+### 4) Inspect calibration and quality
+- Check `calibration_visualizations/` for:
+  - `camera_XXX_markers.png`, `combined_calibration.png`
+  - Distortion analysis: `camera_XXX_distortion_analysis.png`, `distortion_summary.png`
+
+### Optional utilities
+- Run distortion analysis standalone (on `calibration_markers.json`):
+```
+python distortion_analysis.py
+```
+- Explore stitching/processing logic in `camera_stitching.py`; calibration flow in `find_calibration_markers.py`.
+
+### Tips
+- Keep the camera centered over the table; aim for “Good” (≥0.90) or “Excellent” (≥0.95) distortion scores.
+- If the table/camera moves, re‑run calibration to refresh transforms and quality reports.
+
 ## How to run
 - Install requirements
 - Run server.py 
