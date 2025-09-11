@@ -127,11 +127,6 @@ def draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id: int = 0
     return ir_image
 
 
-#[width, height]
-pts_src = numpy.loadtxt(open("homography.txt"))
-if(pts_src is None):
-  pts_src = numpy.array([[0, 0], [0, 800], [1280, 0],[1280, 800]])
-print("Homography loaded")
 
 def handle_key_presses() -> None:
     key = cv2.waitKeyEx(1)
