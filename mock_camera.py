@@ -105,7 +105,7 @@ def poll_frame_data() -> Frame:
             
     finally:
         if device_manager:
-            device_manager.disable_streams()
+            print("device manager loaded")
 
 
 # Example usage for testing
