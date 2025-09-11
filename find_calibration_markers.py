@@ -5,6 +5,10 @@ from typing import Dict, List, Tuple, Optional
 import json
 import os
 import math
+from image import buffer_to_array, sharpen_and_rotate_image
+from hud import draw_monitor_window, draw_status_window
+from detection import detect_markers
+from marker import Markers, map_detected_markers
 
 def check_existing_calibration(file_path: str = "calibration_markers.json") -> bool:
     """
@@ -40,7 +44,7 @@ def check_existing_calibration(file_path: str = "calibration_markers.json") -> b
 
 
 
-def find_calibration_markers(cameras_config: Dict, timeout: int = 6) -> Dict:
+def find_calibration_markers(cameras_config: Dict, timeout: int = 270) -> Dict:
     """
     Find calibration markers in camera streams and save their positions.
     
@@ -79,7 +83,8 @@ def find_calibration_markers(cameras_config: Dict, timeout: int = 6) -> Dict:
     print("No existing calibration found. Starting fresh calibration...")
     from detection import detect_markers
     from image import sharpen_and_rotate_image
-    from mock_camera import poll_frame_data
+    # from mock_camera import poll_frame_data  # for testing without pyrealsense cameras , using local video file streams instead
+    from camera import poll_frame_data
     
     print(f"Starting calibration marker detection with {len(cameras_config)} cameras")
     print(f"Will timeout after {timeout} seconds if not all markers are found")
@@ -128,7 +133,7 @@ def find_calibration_markers(cameras_config: Dict, timeout: int = 6) -> Dict:
                 continue
             
             # Process image
-            ir_image = sharpen_and_rotate_image(image_data)
+            ir_image = sharpen_and_rotate_image(buffer_to_array(image_data))
             
             # Initialize tracking for this camera if needed
             if camera_id not in detected_markers:
@@ -324,7 +329,7 @@ def get_available_camera_ids():
         print("Make sure the cameras are connected and powered on")
         raise Exception("No cameras detected")
 
-def show_camera_streams_for_identification(camera_id):
+def show_camera_streams_for_identification(cam_to_show):
     """
     Show camera streams to help user identify which camera is which
     """
@@ -332,24 +337,39 @@ def show_camera_streams_for_identification(camera_id):
     print("Press 'q' to stop viewing and continue with setup")
     
     try:
-        from mock_camera import poll_frame_data
+        # from mock_camera import poll_frame_data   # for use without physical cameras
+        from camera import poll_frame_data
         from image import sharpen_and_rotate_image
-        
-        active_cameras = {}
         
         # Show streams for a few seconds to let user see each camera
         for camera_id, frame_data in poll_frame_data():
-            if camera_id != camera_id:
+            if camera_id != cam_to_show:
                 continue
-            processed_frame = sharpen_and_rotate_image(frame_data)
-            active_cameras[camera_id] = processed_frame
+            print( 'test',camera_id,frame_data)
+
+           # processed_frame = frame_data
+            processed_frame = sharpen_and_rotate_image(buffer_to_array(frame_data))
+            # print("act",active_cameras)
+
+            #corners, ids, rejectedImgPoints = detect_markers(processed_frame)
+            #buildingDict = map_detected_markers(camera_id, ids, corners)
+            #draw_monitor_window(processed_frame, corners, rejectedImgPoints, camera_id)
+            # draw_status_window(buildingDict, camera_id)
+
             
             # Show the camera view
-            cv2.imshow(f"Camera {camera_id} - Enter calibration marker ids for this camera", processed_frame)
-            time.sleep(4)
-
-        cv2.destroyAllWindows()
-        return list(active_cameras.keys())
+            #cv2.imshow(f"Camera {camera_id} - Enter calibration marker ids for this camera", processed_frame)
+            # time.sleep(4)
+            break
+        
+        corners, ids, rejectedImgPoints = detect_markers(processed_frame)
+        buildingDict = map_detected_markers(camera_id, ids, corners)
+        draw_monitor_window(processed_frame, corners, rejectedImgPoints, camera_id)
+        draw_status_window(buildingDict, camera_id)
+        #cv2.imshow(f"Camera {camera_id} - Enter calibration marker ids for this camera", processed_frame)
+        #time.sleep(4)
+        # cv2.destroyAllWindows()
+        
         
     except Exception as e:
         print(f"Could not show camera streams: {e}")
@@ -369,14 +389,14 @@ def prompt_calibration_setup() -> Dict:
     marker_offset = float(input("Distance from marker to table edge (cm): "))
     
     # Try to get camera IDs automatically
-    camera_ids = get_available_camera_ids()
+    camera_ids = ["104", "863"]
     
     # Get marker IDs for each camera
     cameras_config = {}
     
     for camera_id in camera_ids:
         # Show camera streams to help identify
-        show_camera_streams_for_identification(camera_id)
+        # show_camera_streams_for_identification(camera_id)
         
         print(f"Marker IDs for camera {camera_id}:")
         marker_ids = {}
@@ -416,7 +436,7 @@ def prompt_calibration_setup() -> Dict:
 # Example usage
 if __name__ == "__main__":
     # Check if calibration already exists
-    if False:# check_existing_calibration():
+    if check_existing_calibration():
         print("Using existing calibration file...")
         with open("calibration_markers.json", 'r') as f:
             cameras = json.load(f)

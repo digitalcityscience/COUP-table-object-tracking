@@ -37,20 +37,20 @@ def initialize_camera_stitching():
     
     # Define calibration markers configuration 
     cameras_config = {
-        "000": {
+        "104": {
             "calibration_markers": {
-                "top_left": {"id": "48", "pixel_position": None, "physical_position": [3, 3]},
-                "top_right": {"id": "44", "pixel_position": None, "physical_position": [77, 3]},
-                "bottom_right": {"id": "41", "pixel_position": None, "physical_position": [77, 77]},
-                "bottom_left": {"id": "43", "pixel_position": None, "physical_position": [3, 77]}
+                "top_left": {"id": "45", "pixel_position": None, "physical_position": [3, 3]},
+                "top_right": {"id": "46", "pixel_position": None, "physical_position": [77, 3]},
+                "bottom_right": {"id": "47", "pixel_position": None, "physical_position": [77, 77]},
+                "bottom_left": {"id": "44", "pixel_position": None, "physical_position": [3, 77]}
             }
         },
-        "001": {
+        "863": {
             "calibration_markers": {
-                "top_left": {"id": "68", "pixel_position": None, "physical_position": [83, 3]},
-                "top_right": {"id": "62", "pixel_position": None, "physical_position": [157, 3]},
-                "bottom_right": {"id": "69", "pixel_position": None, "physical_position": [157, 77]},
-                "bottom_left": {"id": "999", "pixel_position": [357, 762], "physical_position": [83, 77]}
+                "top_left": {"id": "41", "pixel_position": None, "physical_position": [83, 3]},
+                "top_right": {"id": "42", "pixel_position": None, "physical_position": [157, 3]},
+                "bottom_right": {"id": "43", "pixel_position": None, "physical_position": [157, 77]},
+                "bottom_left": {"id": "40", "pixel_position": None, "physical_position": [83, 77]}
             }
         }
     }

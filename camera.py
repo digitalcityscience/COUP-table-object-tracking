@@ -1,4 +1,5 @@
 import time
+import numpy as np
 from functools import lru_cache
 from time import sleep
 from typing import Any, Iterable, Tuple
@@ -43,7 +44,8 @@ def poll_frame_data() -> Frame:
                 yield short_camera_id, frame_data
     finally:
         if device_manager:
-            device_manager.disable_streams()
+            print("hello")
+            # device_manager.disable_streams()
 
 
 def get_latest_frame_data() -> Iterable[Tuple[int, Any]]:

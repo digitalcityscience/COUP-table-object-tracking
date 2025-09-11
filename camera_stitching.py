@@ -3,8 +3,9 @@ import numpy as np
 import json
 import time
 from typing import Dict, Tuple
-from mock_camera import poll_frame_data
-from image import sharpen_and_rotate_image
+# from mock_camera import poll_frame_data  # for testing without pyrealsense cameras , using local video file streams instead
+from camera import poll_frame_data
+from image import sharpen_and_rotate_image, buffer_to_array
 
 def load_calibration_markers(file_path: str) -> Dict:
     """Load calibration markers from JSON file"""
@@ -312,7 +313,7 @@ def process_and_join_streams(setup_config: dict):
     frame_count = 0
     for camera_id, frame_data in poll_frame_data():
         # Process the frame
-        processed_frame = sharpen_and_rotate_image(frame_data)
+        processed_frame = sharpen_and_rotate_image(buffer_to_array(frame_data))
         
         # Apply perspective transform (fast - just matrix multiplication!)
         if camera_id in transforms:
