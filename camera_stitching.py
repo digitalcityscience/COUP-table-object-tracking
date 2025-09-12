@@ -9,7 +9,7 @@ from image import sharpen_and_rotate_image, buffer_to_array
 
 
 
-def calculate_perspective_transform(markers: Dict) -> Tuple[np.ndarray, Tuple[int, int]]:
+def calculate_perspective_transform(camera_setup: Dict) -> Tuple[np.ndarray, Tuple[int, int]]:
     """
     Calculate perspective transform matrix from calibration markers
     
@@ -26,24 +26,16 @@ def calculate_perspective_transform(markers: Dict) -> Tuple[np.ndarray, Tuple[in
     
     # Order: top_left, top_right, bottom_right, bottom_left
     for position in ["top_left", "top_right", "bottom_right", "bottom_left"]:
-        marker = markers["calibration_markers"][position]
+        marker = camera_setup["calibration_markers"][position]
         src_points.append(marker["pixel_position"])
         physical_points.append(marker["physical_position"])
     
     src_points = np.array(src_points, dtype=np.float32)
     physical_points = np.array(physical_points, dtype=np.float32)
-    
-    # Calculate physical dimensions (in cm) - this is just between markers
-    marker_width = max(physical_points[:, 0]) - min(physical_points[:, 0])
-    marker_height = max(physical_points[:, 1]) - min(physical_points[:, 1])
-    
-    # Add 3cm on each side to get the full table dimensions
-    # Markers are 3cm from table edges, so table is 6cm larger in each direction
-    physical_width = marker_width + 6  # 3cm on each side
-    physical_height = marker_height + 6  # 3cm on each side
-    
-    print(f"Marker dimensions: {marker_width}cm x {marker_height}cm")
-    print(f"Full table dimensions: {physical_width}cm x {physical_height}cm")
+
+    physical_width = camera_setup["measurements"]["width"]
+    physical_height = camera_setup["measurements"]["height"]
+        
     
     # Define target points for a perfect rectangle (we'll scale this appropriately)
     # Use a scale factor to get reasonable pixel dimensions
@@ -81,65 +73,21 @@ def analyze_camera_layout(calibration_data: Dict) -> Dict:
         dict: Layout information with camera positions
     """
 
+    def find_cam_with_position(pos):
+        for cam in calibration_data:
+            if calibration_data[cam]["position"] == pos:
+                return cam
+            
+        return None
+
     # Assign cameras to grid positions
     return {
-        "top_left": None,     # x < threshold, y < threshold  
-        "top_right": None,    # x >= threshold, y < threshold
-        "bottom_left": "863",  # x < threshold, y >= threshold
-        "bottom_right": "104"  # x >= threshold, y >= threshold
+        "top_left": find_cam_with_position("top_left"),
+        "top_right": find_cam_with_position("top_right"),
+        "bottom_left": find_cam_with_position("bottom_left"),
+        "bottom_right": find_cam_with_position("bottom_right")
     }
 
-    # TODO refactor this
-
-    camera_positions = {}
-    
-    # Extract center position for each camera from its calibration markers
-    for camera_id, camera_data in calibration_data.items():
-        markers = camera_data["calibration_markers"]
-        
-        # Calculate center position from all markers
-        x_positions = [marker["physical_position"][0] for marker in markers.values()]
-        y_positions = [marker["physical_position"][1] for marker in markers.values()]
-        
-        center_x = (min(x_positions) + max(x_positions)) / 2
-        center_y = (min(y_positions) + max(y_positions)) / 2
-        
-        camera_positions[camera_id] = (center_x, center_y)
-        print(f"Camera {camera_id}: Center at ({center_x:.1f}, {center_y:.1f}) cm")
-    
-    # Sort cameras into a 2x2 grid based on their physical positions
-    # Find x and y thresholds to separate cameras
-    x_centers = [pos[0] for pos in camera_positions.values()]
-    y_centers = [pos[1] for pos in camera_positions.values()]
-    
-    x_threshold = np.median(x_centers) if len(x_centers) > 1 else x_centers[0]
-    y_threshold = np.median(y_centers) if len(y_centers) > 1 else y_centers[0]
-    
-    print(f"Layout thresholds: X={x_threshold:.1f}cm, Y={y_threshold:.1f}cm")
-    
-    # Assign cameras to grid positions
-    layout = {
-        "top_left": None,     # x < threshold, y < threshold  
-        "top_right": None,    # x >= threshold, y < threshold
-        "bottom_left": None,  # x < threshold, y >= threshold
-        "bottom_right": None  # x >= threshold, y >= threshold
-    }
-    
-    for camera_id, (x, y) in camera_positions.items():
-        if x < x_threshold and y < y_threshold:
-            layout["top_left"] = camera_id
-        elif x >= x_threshold and y < y_threshold:
-            layout["top_right"] = camera_id
-        elif x < x_threshold and y >= y_threshold:
-            layout["bottom_left"] = camera_id
-        else:  # x >= x_threshold and y >= y_threshold
-            layout["bottom_right"] = camera_id
-    
-    print("Camera layout:")
-    for position, camera_id in layout.items():
-        print(f"  {position}: {camera_id if camera_id else 'empty'}")
-    
-    return layout
 
 def join_images_horizontally(left_image: np.ndarray, right_image: np.ndarray, unified_width: int, unified_height: int) -> np.ndarray:
     """
@@ -258,12 +206,8 @@ def setup_camera_transforms(calibration_data):
         markers = calibration_data[camera_id]["calibration_markers"]
         physical_points = [marker["physical_position"] for marker in markers.values()]
         physical_points = np.array(physical_points)
-        marker_w = max(physical_points[:, 0]) - min(physical_points[:, 0])
-        marker_h = max(physical_points[:, 1]) - min(physical_points[:, 1])
-        # Full table is marker area + 6cm (3cm border on each side)
-        phys_w = marker_w + 6
-        phys_h = marker_h + 6
-        physical_dims[camera_id] = (phys_w, phys_h)
+        
+        physical_dims[camera_id] = (calibration_data[camera_id]["measurements"]["width"],calibration_data[camera_id]["measurements"]["height"])
         
         print(f"    Transform matrix calculated: {output_size[0]}x{output_size[1]} output")
     
@@ -334,10 +278,7 @@ def process_and_join_streams(setup_config: dict):
             
             # Store current frame in buffer
             frame_buffer[camera_id] = normalized
-            
-            # Show individual camera views
-            #cv2.imshow(f"Camera {camera_id} - Original", processed_frame)
-            #cv2.imshow(f"Camera {camera_id} - Transformed", normalized)
+
         
         # Check if we have frames from all expected cameras
         if expected_cameras.issubset(set(frame_buffer.keys())):

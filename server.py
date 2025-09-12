@@ -10,7 +10,7 @@ from tracker import track_v2
 from time import time_ns
 from detection import detect_markers
 from hud import draw_monitor_window, draw_status_window
-from find_calibration_markers import save_calibration_markers, check_calibration_exists
+from calibration_handler  import load_calibration_markers, run_initial_calibration_if_needed
 from camera_stitching import setup_camera_transforms, process_and_join_streams
 import cv2
 
@@ -20,10 +20,6 @@ import os
 from datetime import datetime
 
 
-def load_calibration_markers(file_path: str) -> Dict:
-    """Load calibration markers from JSON file"""
-    with open(file_path, 'r') as f:
-        return json.load(f)
 
 # Global variable for stitching setup
 stitching_setup = None
@@ -34,64 +30,17 @@ print(f"Listening to socket connections on: {SERVER_SETTINGS}")
 socket.bind(SERVER_SETTINGS)
 socket.listen(1)
 socket.setblocking(False)
-loop = asyncio.new_event_loop()
-
-def prompt_recalibration(timeout=10):
-    print("Existing calibration found.")
-    print("Press 1 to recalibrate within {} seconds...".format(timeout))
-    
-    start_time = time.time()
-    while True:
-        if time.time() - start_time > timeout:
-            print("No input received. Continuing with existing calibration.")
-            return False
-        user_input = input()
-        if user_input == '1':
-            print("Recalibrating...")
-            return True
-
-
-def initial_calibration():
-
-    # Step 1: Run calibration setup
-    print("Step 1: Running calibration setup...")
-    if check_calibration_exists():
-        print("Existing calibration found.")
-        if prompt_recalibration(timeout=5):
-            print("OVERRIDING EXISITING CALIBRATION")
-            save_calibration_markers()
-
-    save_calibration_markers()
-    
-        
-
-def initialize_camera_stitching():
-    """Initialize camera stitching setup"""
-    global stitching_setup
-    
-    print("=== Initializing Camera Stitching System ===")
-    
-       # Step 1: Setup camera transforms
-    print("Step 2: Setting up camera transforms...")
-    stitching_setup = setup_camera_transforms(load_calibration_markers("calibration_markers.json"))
-    
-    # Step 2: try if the setup works
-    try:
-        # Get one stitched frame as a sample
-        for _stitched_image in process_and_join_streams(stitching_setup):
-            print("✓ Abble to process and stitch camera streams")
-            break  # Only export one sample, then continue
-    except Exception as e:
-        print(f"Warning: Could process and stitch camera streams: {e}")
-    
-    return stitching_setup
-        
+loop = asyncio.new_event_loop()  
+              
 
 
 async def main():
+    # Runs the initial table calibration setup if no calibration file is found
+    run_initial_calibration_if_needed()
     # Initialize camera stitching system at startup
     global stitching_setup
-    stitching_setup = initialize_camera_stitching()
+    stitching_setup = setup_camera_transforms(load_calibration_markers("calibration_markers.json"))
+    print("waiting for client to connect")
     
     while True:
         connection, client_address = await loop.sock_accept(socket)
