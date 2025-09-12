@@ -5,12 +5,15 @@ from typing import Dict, List, Tuple, Optional
 import json
 import os
 import math
+
+from camera import get_device_manager, Resolution_X, Resolution_Y, poll_frame_data
 from image import buffer_to_array, sharpen_and_rotate_image
 from hud import draw_monitor_window, draw_status_window
 from detection import detect_markers
 from marker import Markers, map_detected_markers
+from realsense.realsense_device_manager import DeviceManager
 
-def check_existing_calibration(file_path: str = "calibration_markers.json") -> bool:
+def check_calibration_exists(file_path: str = "calibration_markers.json") -> bool:
     """
     Check if calibration file exists with valid pixel positions
     
@@ -42,9 +45,127 @@ def check_existing_calibration(file_path: str = "calibration_markers.json") -> b
         print(f"Error reading calibration file: {e}")
         return False
 
+def show_camera_streams():
+        for cam_id, image_data in poll_frame_data():
+            ir_image = sharpen_and_rotate_image(buffer_to_array(image_data))
+            corners, ids, _ = detect_markers(ir_image)
+            marker_image = ir_image.copy()
+
+            if ids is not None:
+                marker_image = cv2.aruco.drawDetectedMarkers(marker_image, corners, ids)
+            
+            cv2.imshow(f"CAMERA ID {cam_id}", marker_image)
+
+            # Break on 'q' key
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                print("Manually stopped marker detection")
+                break
+
+def choose_camera_position(cam_id):
+    options = ["top_left", "top_right", "bottom_left", "bottom_right"]
+    
+    print(f"Where is camera {cam_id} located?")
+    print("Please choose one of the following options:")
+    for index, option in enumerate(options, start=1):
+        print(f"{index}. {option}")
+
+    while True:
+        try:
+            choice = int(input("Enter the number of your choice: "))
+            if 1 <= choice <= len(options):
+                return options[choice - 1]
+            else:
+                print("Invalid choice. Please try again.")
+        except ValueError:
+            print("Please enter a valid number.")
 
 
-def find_calibration_markers(cameras_config: Dict, timeout: int = 30) -> Dict:
+def prompt_calibration_marker_ids():
+    markers = {}
+    for pos in ["top_left", "top_right", "bottom_right", "bottom_left"]:
+       marker_id = input(f"  {pos} marker ID: ").strip()
+       if not marker_id:
+           raise ValueError(f"Marker ID for {pos} cannot be empty")
+       markers[pos] = {"id": marker_id}
+
+    return markers
+
+
+
+def calculate_physical_position_of_calibration_marker(marker_name, cam_position):
+    
+
+
+def prompt_camera_setup():
+    # get camera ids
+    # get camera resolutions
+    # get cameara positions
+    # get marker ids automatically
+    device_manager = get_device_manager()
+    camera_ids = [id[-3:] for id in device_manager.get_enabled_devices_ids()]
+
+    # Get table size
+    table_width = float(input("Table width (cm): "))
+    table_height = float(input("Table height (cm): "))
+    
+    # Get marker offset
+    marker_offset = float(input("Distance from marker to table edge (cm): "))
+
+    camera_setup = {cam_id: {"position": None, "calibration_markers": {}} for cam_id in camera_ids}
+
+    print("PLEASE NOTE CAMERA ID OF LEFT CAMERA")
+    print("PLEASE NOTE CAMERA ID OF RIGHT CAMERA")
+    print("PRESS Q TO QUIT")
+
+    show_camera_streams()
+
+    for cam_id in camera_ids:
+        camera_setup[cam_id]["position"] = choose_camera_position(cam_id)
+    
+    print(f"Camera positions are: {camera_setup}")
+    
+
+    for cam_id in camera_ids:
+        # find calibration marker ids 
+        print(f"Enter calibration marker ids for camera {cam_id}")
+        calibration_markers = prompt_calibration_marker_ids()
+
+        # calculate physical position of calibration markers based on position
+        for marker_name, marker_details in calibration_markers.items():
+            marker_details["physical_position"] = calculate_physical_position_of_calibration_marker(
+                marker_name, 
+                camera_setup[cam_id]["position"]
+            )
+
+        exit()
+
+
+   
+
+        
+    cameras_config = {
+        "104": {
+            "position": None,
+            "calibration_markers": {
+                "top_left": {"id": "45", "pixel_position": None, "physical_position": [3, 3]},
+                "top_right": {"id": "47", "pixel_position": None, "physical_position": [77, 3]},
+                "bottom_right": {"id": "16", "pixel_position": None, "physical_position": [77, 77]},
+                "bottom_left": {"id": "44", "pixel_position": None, "physical_position": [3, 77]}
+            }
+        },
+        "863": {
+            "position": None,
+            "calibration_markers": {
+                "top_left": {"id": "40", "pixel_position": None, "physical_position": [83, 3]},
+                "top_right": {"id": "42", "pixel_position": None, "physical_position": [157, 3]},
+                "bottom_right": {"id": "43", "pixel_position": None, "physical_position": [157, 77]},
+                "bottom_left": {"id": "46", "pixel_position": None, "physical_position": [83, 77]}
+            }
+        }
+    }   
+
+
+def save_calibration_markers(timeout: int = 30) -> Dict:
     """
     Find calibration markers in camera streams and save their positions.
     
@@ -363,7 +484,7 @@ def prompt_calibration_setup() -> Dict:
     # Get marker offset
     marker_offset = float(input("Distance from marker to table edge (cm): "))
     
-    # Try to get camera IDs automatically
+    # TODO Try to get camera IDs automatically
     camera_ids = ["104", "863"]
     
     # Get marker IDs for each camera
@@ -410,6 +531,10 @@ def prompt_calibration_setup() -> Dict:
 
 # Example usage
 if __name__ == "__main__":
+
+    prompt_camera_setup()
+    exit()
+
     # Check if calibration already exists
     if False: # check_existing_calibration():
         print("Using existing calibration file...")
@@ -420,4 +545,4 @@ if __name__ == "__main__":
         cameras = prompt_calibration_setup()
     
     # Run calibration marker detection
-    find_calibration_markers(cameras)
+    save_calibration_markers(cameras)

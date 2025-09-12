@@ -7,10 +7,7 @@ from typing import Dict, Tuple
 from camera import poll_frame_data
 from image import sharpen_and_rotate_image, buffer_to_array
 
-def load_calibration_markers(file_path: str) -> Dict:
-    """Load calibration markers from JSON file"""
-    with open(file_path, 'r') as f:
-        return json.load(f)
+
 
 def calculate_perspective_transform(markers: Dict) -> Tuple[np.ndarray, Tuple[int, int]]:
     """
@@ -237,17 +234,14 @@ def create_final_stitched_image(current_frames: Dict, layout: Dict, unified_widt
         print("Warning: No cameras detected in layout")
         return None
 
-def setup_camera_transforms():
+def setup_camera_transforms(calibration_data):
     """
     Setup camera transforms and parameters once at startup
     
     Returns:
         dict: Setup configuration containing transforms, dimensions, and parameters
     """
-    # Load calibration markers
-    print("Loading calibration markers...")
-    calibration_data = load_calibration_markers("calibration_markers.json")
-    
+        
     # === OPTIMIZATION: Calculate transforms ONCE at startup ===
     print("Calculating perspective transforms (one-time setup)...")
     transforms = {}
@@ -371,17 +365,3 @@ def process_and_join_streams(setup_config: dict):
         
         # Minimal key handling for OpenCV windows
         cv2.waitKey(1)
-
-def process_camera_streams():
-    """Main function to process camera streams and create joined output"""
-    # Setup phase
-    setup_config = setup_camera_transforms()
-    
-    # Processing phase
-    for stitched_image in process_and_join_streams(setup_config):
-        # The server will handle displaying the stitched image
-        # For now, we just yield it
-        pass
-
-if __name__ == "__main__":
-    process_camera_streams() 

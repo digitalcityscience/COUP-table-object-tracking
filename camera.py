@@ -12,7 +12,8 @@ from realsense.realsense_device_manager import DeviceManager
 FRAMES_PER_SECOND = 30
 
 Frame = Iterable[Tuple[int, Any]]
-
+Resolution_X = 1280
+Resolution_Y = 800
 
 
 @lru_cache(1)
@@ -20,7 +21,7 @@ def get_device_manager() -> DeviceManager:
     print("initializing realsense device manager")
     config = rs.config()
     config.enable_stream(
-        rs.stream.infrared, 1, 1280, 800, rs.format.y8, FRAMES_PER_SECOND
+        rs.stream.infrared, 1, Resolution_X, Resolution_Y, rs.format.y8, FRAMES_PER_SECOND
     )
     device_manager = DeviceManager(rs.context(), config)
 
@@ -44,7 +45,7 @@ def poll_frame_data() -> Frame:
                 yield short_camera_id, frame_data
     finally:
         if device_manager:
-            print("hello")
+            print("hello")  # TODO whats going on here
             # device_manager.disable_streams()
 
 
