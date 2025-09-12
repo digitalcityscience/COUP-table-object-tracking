@@ -36,29 +36,33 @@ def initialize_camera_stitching():
     print("=== Initializing Camera Stitching System ===")
     
     # Define calibration markers configuration 
+    # TODO add position
     cameras_config = {
         "104": {
+            "position": None,
             "calibration_markers": {
                 "top_left": {"id": "45", "pixel_position": None, "physical_position": [3, 3]},
-                "top_right": {"id": "46", "pixel_position": None, "physical_position": [77, 3]},
-                "bottom_right": {"id": "47", "pixel_position": None, "physical_position": [77, 77]},
+                "top_right": {"id": "47", "pixel_position": None, "physical_position": [77, 3]},
+                "bottom_right": {"id": "16", "pixel_position": None, "physical_position": [77, 77]},
                 "bottom_left": {"id": "44", "pixel_position": None, "physical_position": [3, 77]}
             }
         },
         "863": {
+            "position": None,
             "calibration_markers": {
-                "top_left": {"id": "41", "pixel_position": None, "physical_position": [83, 3]},
+                "top_left": {"id": "40", "pixel_position": None, "physical_position": [83, 3]},
                 "top_right": {"id": "42", "pixel_position": None, "physical_position": [157, 3]},
                 "bottom_right": {"id": "43", "pixel_position": None, "physical_position": [157, 77]},
-                "bottom_left": {"id": "40", "pixel_position": None, "physical_position": [83, 77]}
+                "bottom_left": {"id": "46", "pixel_position": None, "physical_position": [83, 77]}
             }
         }
     }
-    
+
+   
     try:
         # Step 1: Run calibration setup
         print("Step 1: Running calibration setup...")
-        calibrated_config = find_calibration_markers(cameras_config)
+        find_calibration_markers(cameras_config)
         
         # Step 2: Setup camera transforms
         print("Step 2: Setting up camera transforms...")

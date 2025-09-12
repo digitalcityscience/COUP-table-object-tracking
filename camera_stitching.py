@@ -83,6 +83,17 @@ def analyze_camera_layout(calibration_data: Dict) -> Dict:
     Returns:
         dict: Layout information with camera positions
     """
+
+    # Assign cameras to grid positions
+    return {
+        "top_left": None,     # x < threshold, y < threshold  
+        "top_right": None,    # x >= threshold, y < threshold
+        "bottom_left": "863",  # x < threshold, y >= threshold
+        "bottom_right": "104"  # x >= threshold, y >= threshold
+    }
+
+    # TODO refactor this
+
     camera_positions = {}
     
     # Extract center position for each camera from its calibration markers
@@ -192,7 +203,8 @@ def create_final_stitched_image(current_frames: Dict, layout: Dict, unified_widt
         layout: Camera layout from analyze_camera_layout()
         unified_width: Width for each camera image
         unified_height: Height for each camera image
-    """
+    """    
+
     # Get images for each position (or None if camera not present)
     top_left_img = current_frames.get(layout["top_left"]) if layout["top_left"] else None
     top_right_img = current_frames.get(layout["top_right"]) if layout["top_right"] else None

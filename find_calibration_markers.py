@@ -44,7 +44,7 @@ def check_existing_calibration(file_path: str = "calibration_markers.json") -> b
 
 
 
-def find_calibration_markers(cameras_config: Dict, timeout: int = 270) -> Dict:
+def find_calibration_markers(cameras_config: Dict, timeout: int = 30) -> Dict:
     """
     Find calibration markers in camera streams and save their positions.
     
@@ -69,16 +69,6 @@ def find_calibration_markers(cameras_config: Dict, timeout: int = 270) -> Dict:
     Returns:
         Updated cameras_config dictionary with pixel positions filled in
     """
-    # Check if calibration already exists
-    if check_existing_calibration():
-        print("Found existing calibration file with complete pixel positions.")
-        
-        # Load existing calibration
-        with open("calibration_markers.json", 'r') as f:
-            existing_config = json.load(f)
-        
-        print("✓ Using existing calibration - calibration markers no longer need to be visible")
-        return existing_config
     
     print("No existing calibration found. Starting fresh calibration...")
     from detection import detect_markers
@@ -124,6 +114,7 @@ def find_calibration_markers(cameras_config: Dict, timeout: int = 270) -> Dict:
     # Store all detected calibration marker positions
     detected_markers = {}
     
+    print("starting calibration marker detection")
     try:
         # Process camera frames
         for camera_id, image_data in poll_frame_data():
@@ -345,31 +336,15 @@ def show_camera_streams_for_identification(cam_to_show):
         for camera_id, frame_data in poll_frame_data():
             if camera_id != cam_to_show:
                 continue
-            print( 'test',camera_id,frame_data)
-
+            
            # processed_frame = frame_data
             processed_frame = sharpen_and_rotate_image(buffer_to_array(frame_data))
-            # print("act",active_cameras)
-
-            #corners, ids, rejectedImgPoints = detect_markers(processed_frame)
-            #buildingDict = map_detected_markers(camera_id, ids, corners)
-            #draw_monitor_window(processed_frame, corners, rejectedImgPoints, camera_id)
-            # draw_status_window(buildingDict, camera_id)
-
-            
-            # Show the camera view
-            #cv2.imshow(f"Camera {camera_id} - Enter calibration marker ids for this camera", processed_frame)
-            # time.sleep(4)
-            break
-        
-        corners, ids, rejectedImgPoints = detect_markers(processed_frame)
-        buildingDict = map_detected_markers(camera_id, ids, corners)
-        draw_monitor_window(processed_frame, corners, rejectedImgPoints, camera_id)
-        draw_status_window(buildingDict, camera_id)
-        #cv2.imshow(f"Camera {camera_id} - Enter calibration marker ids for this camera", processed_frame)
-        #time.sleep(4)
-        # cv2.destroyAllWindows()
-        
+            # Draw all detected markers
+            corners, ids, _ = detect_markers(processed_frame)
+            marker_image = cv2.aruco.drawDetectedMarkers(processed_frame, corners, ids)
+            # Show the camera view with detected markers
+            cv2.imshow(f"Camera {camera_id}", marker_image)
+             
         
     except Exception as e:
         print(f"Could not show camera streams: {e}")
@@ -436,7 +411,7 @@ def prompt_calibration_setup() -> Dict:
 # Example usage
 if __name__ == "__main__":
     # Check if calibration already exists
-    if check_existing_calibration():
+    if False: # check_existing_calibration():
         print("Using existing calibration file...")
         with open("calibration_markers.json", 'r') as f:
             cameras = json.load(f)
