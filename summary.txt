@@ -1,0 +1,19 @@
+2 markers detected, 34 rejected {'test_id': 64, 'detected': 2, 'rejected': 34, 'elapsed_time': 0.05779576301574707, 'total_candidates': 36, 'detection_rate': 0.05555555555555555, 'parameters': {'minMarkerPerimeterRate': 0.005, 'maxMarkerPerimeterRate': 0.2, 'polygonalApproxAccuracyRate': 0.01, 'minOtsuStdDev': 1.0, 'adaptiveThreshWinSizeMin': 3, 'adaptiveThreshWinSizeMax': 15, 'adaptiveThreshWinSizeStep': 2, 'adaptiveThreshConstant': 5.0, 'cornerRefinementMethod': 0}}
+
+
+"test_summary": {
+    "total_tests": 23852,
+    "best_detected": 24,
+    "best_parameters": {
+      "minMarkerPerimeterRate": 0.005,
+      "maxMarkerPerimeterRate": 0.2,
+      "polygonalApproxAccuracyRate": 0.08,
+      "minOtsuStdDev": 1.0,
+      "adaptiveThreshWinSizeMin": 3,
+      "adaptiveThreshWinSizeMax": 31,
+      "adaptiveThreshWinSizeStep": 2,
+      "adaptiveThreshConstant": 3.0,
+      "cornerRefinementMethod": 0
+    },
+    "timestamp": "20250918_142421"
+  },
