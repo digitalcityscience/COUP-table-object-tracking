@@ -6,7 +6,17 @@ from typing import Dict, Tuple
 # from mock_camera import poll_frame_data  # for testing without pyrealsense cameras , using local video file streams instead
 from camera import poll_frame_data
 from image import sharpen_and_rotate_image, buffer_to_array
+from detection import set_stitched_detection_parameters
 
+# ===== CONFIGURATION =====
+# Scale factor for stitched images (pixels per cm)
+# Higher values = larger stitched images = better marker detection but more processing
+# Recommended: 15-20 for 2x2cm markers
+STITCHING_SCALE_FACTOR = 15  # pixels per cm
+
+# Physical size of your ArUco markers (in cm)
+# This is used to calculate optimal detection parameters
+MARKER_SIZE_CM = 2.0  # cm (for 2x2 cm markers)
 
 
 def calculate_perspective_transform(camera_setup: Dict) -> Tuple[np.ndarray, Tuple[int, int]]:
@@ -39,12 +49,13 @@ def calculate_perspective_transform(camera_setup: Dict) -> Tuple[np.ndarray, Tup
     
     # Define target points for a perfect rectangle (we'll scale this appropriately)
     # Use a scale factor to get reasonable pixel dimensions
-    scale_factor = 10  # 10 pixels per cm initially
+    # Increased from 10 to 15 to maintain better marker size for detection
+    scale_factor = STITCHING_SCALE_FACTOR  # 15 pixels per cm - better for 2x2cm markers (30x30 pixels)
     target_width = int(physical_width * scale_factor)
     target_height = int(physical_height * scale_factor)
     
     # Calculate the offset to center the markers in the enlarged area
-    # Markers should be 3cm (30 pixels at scale_factor=10) from each edge
+    # Markers should be 3cm (45 pixels at scale_factor=15) from each edge
     offset = 3 * scale_factor
     
     dst_points = np.array([
@@ -226,6 +237,11 @@ def setup_camera_transforms(calibration_data):
     
     print(f"Unified scale: {unified_scale_x:.2f} px/cm (x), {unified_scale_y:.2f} px/cm (y)")
     print(f"Unified dimensions: {unified_width}x{unified_height} pixels per camera")
+    
+    # Initialize detection parameters for stitched images
+    print("Configuring ArUco detection parameters for stitched images...")
+    set_stitched_detection_parameters(STITCHING_SCALE_FACTOR, marker_size_cm=MARKER_SIZE_CM)
+    
     print("=== Setup complete! ===")
     
     return {

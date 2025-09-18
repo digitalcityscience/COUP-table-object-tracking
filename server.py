@@ -8,7 +8,7 @@ import time
 from marker import Markers, map_detected_markers
 from tracker import track_v2
 from time import time_ns
-from detection import detect_markers
+from detection import detect_markers, detect_markers_stitched
 from hud import draw_monitor_window, draw_status_window
 from calibration_handler  import load_calibration_markers, run_initial_calibration_if_needed
 from camera_stitching import setup_camera_transforms, process_and_join_streams
@@ -56,8 +56,8 @@ async def send_tracking_matches(connection):
     
     # Iterate over stitched images from process_and_join_streams
     for stitched_image in process_and_join_streams(stitching_setup):
-        # Run marker detection on stitched image
-        corners, ids, rejectedImgPoints = detect_markers(stitched_image) # runs detection.
+        # Run marker detection on stitched image using optimized parameters
+        corners, ids, rejectedImgPoints = detect_markers_stitched(stitched_image) # runs detection.
         buildingDict = map_detected_markers("stitched", ids, corners)
         
         # Show stitched result with markers
