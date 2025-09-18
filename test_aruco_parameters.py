@@ -34,16 +34,17 @@ def test_aruco_parameters_comprehensive(test_image: np.ndarray, save_results: bo
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_250)
     results = []
     
-    # Define parameter ranges to test
+    # Define parameter ranges to test - OPTIMIZED for 30x30px markers on 2400x1200 image
+    # Marker perimeter ~120px, image perimeter ~7200px, ratio ~0.0167
     param_ranges = {
-        'minMarkerPerimeterRate': [0.005, 0.01, 0.015, 0.02, 0.03, 0.05],
-        'maxMarkerPerimeterRate': [0.2, 0.3, 0.4, 0.5, 0.6],
-        'polygonalApproxAccuracyRate': [0.01, 0.02, 0.03, 0.05, 0.08],
-        'minOtsuStdDev': [1.0, 2.0, 3.0, 5.0, 8.0],
-        'adaptiveThreshWinSizeMin': [3, 5, 7],
-        'adaptiveThreshWinSizeMax': [11, 15, 19, 23, 31],
-        'adaptiveThreshWinSizeStep': [2, 4, 6, 10],
-        'adaptiveThreshConstant': [3, 5, 7, 9, 12],
+        'minMarkerPerimeterRate': [0.008, 0.010, 0.012, 0.015, 0.018, 0.020, 0.025],  # Focused around 0.0167
+        'maxMarkerPerimeterRate': [0.15, 0.2, 0.25, 0.3, 0.4, 0.5],  # Slightly lower max values
+        'polygonalApproxAccuracyRate': [0.015, 0.02, 0.025, 0.03, 0.035, 0.04],  # Tighter range for small markers
+        'minOtsuStdDev': [2.0, 3.0, 4.0, 5.0, 6.0],  # Good range for marker contrast
+        'adaptiveThreshWinSizeMin': [3, 5, 7, 9],  # Start with smaller windows
+        'adaptiveThreshWinSizeMax': [15, 19, 23, 31, 39],  # Appropriate for 30px markers
+        'adaptiveThreshWinSizeStep': [2, 4, 6, 8],  # Good step sizes
+        'adaptiveThreshConstant': [5, 7, 9, 11],  # Focused range
         'cornerRefinementMethod': [
             aruco.CORNER_REFINE_NONE,
             aruco.CORNER_REFINE_SUBPIX,
@@ -168,10 +169,10 @@ def test_quick_parameter_sweep(test_image: np.ndarray) -> List[Dict]:
     aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_250)
     results = []
     
-    # Focus on the most critical parameters
-    min_perimeter_rates = [0.005, 0.01, 0.015, 0.02, 0.03, 0.05, 0.08]
-    max_perimeter_rates = [0.2, 0.3, 0.4, 0.5, 0.6]
-    window_max_sizes = [11, 15, 19, 23, 31]
+    # Focus on the most critical parameters - OPTIMIZED for 30x30px markers
+    min_perimeter_rates = [0.008, 0.010, 0.012, 0.015, 0.018, 0.020, 0.025]  # Centered around theoretical 0.0167
+    max_perimeter_rates = [0.15, 0.2, 0.25, 0.3, 0.4]  # More focused range
+    window_max_sizes = [15, 19, 23, 31, 39]  # Better for 30px markers
     
     print(f"Quick parameter sweep: {len(min_perimeter_rates) * len(max_perimeter_rates) * len(window_max_sizes)} combinations")
     
@@ -218,6 +219,75 @@ def test_quick_parameter_sweep(test_image: np.ndarray) -> List[Dict]:
     results.sort(key=lambda x: x['detected'], reverse=True)
     return results
 
+def test_parameters_for_30px_markers(test_image: np.ndarray) -> List[Dict]:
+    """
+    Highly targeted parameter test for 30x30 pixel markers on 2400x1200 images
+    
+    Based on theoretical calculations:
+    - Marker perimeter: 30*4 = 120 pixels
+    - Image perimeter: (2400+1200)*2 = 7200 pixels
+    - Theoretical perimeter rate: 120/7200 = 0.0167
+    """
+    aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_250)
+    results = []
+    
+    # Highly focused parameters for 30px markers
+    min_perimeter_rates = [0.012, 0.015, 0.017, 0.020]  # Very tight around 0.0167
+    max_perimeter_rates = [0.2, 0.25, 0.3]  # Conservative upper bounds
+    window_sizes = [(3, 15), (3, 19), (5, 23), (7, 31)]  # (min, max) pairs appropriate for 30px
+    constants = [7, 9]  # Good middle values
+    poly_accuracies = [0.02, 0.025, 0.03]  # Tight for small markers
+    
+    total_tests = len(min_perimeter_rates) * len(max_perimeter_rates) * len(window_sizes) * len(constants) * len(poly_accuracies)
+    print(f"Targeted test for 30px markers: {total_tests} combinations")
+    
+    test_count = 0
+    for min_rate in min_perimeter_rates:
+        for max_rate in max_perimeter_rates:
+            for win_min, win_max in window_sizes:
+                for constant in constants:
+                    for poly_acc in poly_accuracies:
+                        test_count += 1
+                        
+                        # Create optimized parameters
+                        params = aruco.DetectorParameters()
+                        params.minMarkerPerimeterRate = min_rate
+                        params.maxMarkerPerimeterRate = max_rate
+                        params.adaptiveThreshWinSizeMin = win_min
+                        params.adaptiveThreshWinSizeMax = win_max
+                        params.adaptiveThreshWinSizeStep = min(6, (win_max - win_min) // 2)
+                        params.adaptiveThreshConstant = constant
+                        params.polygonalApproxAccuracyRate = poly_acc
+                        params.minOtsuStdDev = 3.0  # Good default
+                        params.cornerRefinementMethod = aruco.CORNER_REFINE_CONTOUR
+                        
+                        # Test detection
+                        corners, ids, rejected = aruco.detectMarkers(test_image, aruco_dict, parameters=params)
+                        
+                        detected_count = len(ids) if ids is not None else 0
+                        rejected_count = len(rejected) if rejected is not None else 0
+                        
+                        result = {
+                            'detected': detected_count,
+                            'rejected': rejected_count,
+                            'minPerimeterRate': min_rate,
+                            'maxPerimeterRate': max_rate,
+                            'windowMin': win_min,
+                            'windowMax': win_max,
+                            'constant': constant,
+                            'polyAccuracy': poly_acc,
+                            'detection_ratio': detected_count / (detected_count + rejected_count) if (detected_count + rejected_count) > 0 else 0
+                        }
+                        results.append(result)
+                        
+                        print(f"Test {test_count:3d}: min={min_rate:.3f}, max={max_rate:.2f}, "
+                              f"win={win_min}-{win_max}, const={constant}, poly={poly_acc:.3f} -> "
+                              f"detected={detected_count}, rejected={rejected_count}")
+    
+    # Sort by detected count, then by detection ratio
+    results.sort(key=lambda x: (x['detected'], x['detection_ratio']), reverse=True)
+    return results
+
 def capture_test_image_from_stream():
     """
     Capture a single stitched image for testing
@@ -248,9 +318,10 @@ def main():
     print("1. Capture new test image from camera stream")
     print("2. Use existing image file")
     print("3. Quick parameter sweep (recommended first)")
-    print("4. Full comprehensive test (slow)")
+    print("4. Targeted test for 30x30px markers (RECOMMENDED for your setup)")
+    print("5. Full comprehensive test (very slow)")
     
-    choice = input("Choose option (1-4): ").strip()
+    choice = input("Choose option (1-5): ").strip()
     
     test_image = None
     
@@ -264,7 +335,7 @@ def main():
             return
         test_image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         
-    elif choice in ["3", "4"]:
+    elif choice in ["3", "4", "5"]:
         # Try to find a recent test image
         test_files = [f for f in os.listdir('.') if f.startswith('test_stitched_image_') and f.endswith('.png')]
         if test_files:
@@ -292,6 +363,18 @@ def main():
                   f"win={result['windowMax']:2d})")
                   
     elif choice == "4":
+        results = test_parameters_for_30px_markers(test_image)
+        print(f"\nTop 10 Results for 30x30px markers:")
+        print("-" * 80)
+        for i, result in enumerate(results[:10]):
+            print(f"{i+1:2d}. Detected: {result['detected']:2d}, Rejected: {result['rejected']:2d}, "
+                  f"Ratio: {result['detection_ratio']:.2f}")
+            print(f"    min={result['minPerimeterRate']:.3f}, max={result['maxPerimeterRate']:.2f}, "
+                  f"win={result['windowMin']}-{result['windowMax']}")
+            print(f"    const={result['constant']}, polyAcc={result['polyAccuracy']:.3f}")
+            print()
+                  
+    elif choice == "5":
         results = test_aruco_parameters_comprehensive(test_image)
         print(f"\nTop 10 Results:")
         print("-" * 80)
