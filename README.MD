@@ -118,6 +118,163 @@ The system automatically:
 3. Normalizes scales and stitches cameras into a single top-down view
 4. Runs real-time marker detection on the stitched result
 
+### Detailed Stitching Pipeline
+
+The multi-camera stitching system (`camera_stitching.py`) transforms individual camera feeds into a unified top-down table view through **two distinct phases**:
+
+## 🔧 **PHASE 1: ONE-TIME SETUP** (at application startup)
+## ⚡ **PHASE 2: REAL-TIME PROCESSING** (applied to every frame)
+
+---
+
+### 🔧 **PHASE 1: ONE-TIME SETUP** (Happens ONCE at startup)
+
+#### **1. Load Calibration Data** 
+- **Reads `calibration_markers.json`**: Contains pixel positions of 4 ArUco markers per camera (detected during initial calibration)
+- **No live camera processing**: Uses pre-recorded marker positions from calibration file
+
+#### **2. Calculate Perspective Transforms** (`calculate_perspective_transform()`)
+- **Computes transformation matrices**: Calls `cv2.getPerspectiveTransform(src_points, dst_points)` at **line 59**
+- **One matrix per camera**: Each camera gets its own 3×3 transformation matrix
+- **Stored for reuse**: These matrices are calculated ONCE and saved in memory
+
+#### **3. Pre-calculate Output Dimensions**
+- **Maps physical to pixels**: 15 pixels/cm scale factor applied to table measurements
+- **Determines unified scale**: All cameras normalized to same pixel dimensions
+- **Layout analysis**: Detects camera positions (top-left, top-right, etc.) from marker coordinates
+
+**🎯 Result**: Setup returns a configuration object with pre-calculated transforms, dimensions, and layout - **NO MORE CALCULATIONS NEEDED**
+
+<details>
+<summary><strong>🔍 Click to see HOW the transformation matrices are calculated</strong></summary>
+
+**How the Transformation Matrix is Created:**
+
+The transformation matrix is calculated using OpenCV's `cv2.getPerspectiveTransform()` which maps 4 source points to 4 destination points.
+
+1. **Source Points** (from camera view): The actual pixel positions where ArUco markers were detected
+2. **Destination Points** (target rectangle): Perfect rectangle coordinates where we want those markers to appear
+
+**Example with Real Data from Camera 000:**
+```python
+# Source points (distorted quadrilateral from camera):
+src_points = [
+    [307.07, 31.44],    # top_left marker in camera image
+    [1033.14, 27.77],   # top_right marker in camera image  
+    [1033.47, 762.29],  # bottom_right marker in camera image
+    [311.40, 756.73]    # bottom_left marker in camera image
+]
+
+# Destination points (perfect rectangle):
+# Physical table: 74cm × 74cm, scale factor: 15 pixels/cm = 1110×1110 image
+# Markers are 3cm from edges, so 45 pixels offset
+dst_points = [
+    [45, 45],           # top_left: 3cm × 15px/cm from edges
+    [1065, 45],         # top_right: (74-3)cm × 15px/cm from left edge
+    [1065, 1065],       # bottom_right: (74-3)cm × 15px/cm from both edges  
+    [45, 1065]          # bottom_left: 3cm × 15px/cm from right, (74-3)cm from top
+]
+
+# OpenCV calculates the 3×3 transformation matrix:
+transform_matrix = cv2.getPerspectiveTransform(src_points, dst_points)  # ← LINE 59
+```
+
+**What the Matrix Does:**
+- **Corrects perspective distortion**: The camera sees a trapezoid/quadrilateral, matrix transforms it to a perfect rectangle
+- **Corrects rotation**: If the camera is rotated relative to the table, the matrix straightens it
+- **Corrects scale**: Maps the physical 74×74cm table area to exactly 1110×1110 pixels (15 pixels/cm)
+- **Corrects position**: Centers the table area in the output image with proper 3cm borders
+
+</details>
+
+**Code reference**: `setup_camera_transforms()` calls `calculate_perspective_transform()` in `camera_stitching.py:12-60`
+
+---
+
+### ⚡ **PHASE 2: REAL-TIME PROCESSING** (Applied to EVERY frame at ~30 FPS)
+
+Now the pre-calculated transforms are applied to live camera streams:
+
+#### **1. Frame Preprocessing** (`process_and_join_streams()`)
+Each incoming camera frame undergoes enhancement:
+- **Image sharpening**: Applies a 3×3 convolution kernel `[[-1,-1,-1],[-1,9,-1],[-1,-1,-1]]` to enhance edge definition
+- **Buffer conversion**: Transforms RealSense buffer format to OpenCV-compatible numpy arrays
+- **Note**: Despite the function name `sharpen_and_rotate_image()`, it currently only performs sharpening - no rotation is applied
+
+**Code reference**: `sharpen_and_rotate_image()` in `image.py:16-19`
+
+#### **2. Apply Pre-calculated Perspective Transforms** 
+**🚨 KEY POINT**: The transformation matrices were calculated ONCE during setup. Now we just apply them to each frame:
+
+```python
+# This happens for EVERY frame (fast matrix multiplication):
+transformed = cv2.warpPerspective(processed_frame, transforms[camera_id], output_sizes[camera_id])
+```
+
+**Code reference**: `process_and_join_streams()` in `camera_stitching.py:268-275`
+
+#### **3. Scale Normalization & Image Stitching**
+- **Fast resize**: Each transformed image is resized to unified dimensions using pre-calculated values
+- **Frame buffering**: Collect frames from all cameras before stitching to ensure synchronization
+- **Layout-based joining**: Use pre-determined camera layout to stitch images (horizontal then vertical stacking)
+
+**Code reference**: `process_and_join_streams()` in `camera_stitching.py:276-291`
+
+#### **Performance Summary:**
+- **Setup**: Heavy calculations done ONCE (perspective transforms, dimensions, layout)  
+- **Runtime**: Only fast operations per frame (matrix multiplication, resize, image stacking)
+- **Result**: ~30 FPS real-time stitching performance
+
+---
+
+## 📊 **Image Stitching Details** (`create_final_stitched_image()`)
+The system intelligently combines camera feeds based on detected layout:
+
+**Layout Detection**:
+- **2×2 grid**: Full table coverage with cameras in all four positions
+- **1×2 horizontal**: Cameras only in top row OR bottom row
+- **Fallback handling**: Uses black placeholders for missing camera positions (defensive programming)
+
+**Joining Process**:
+- **Horizontal joining**: `join_images_horizontally()` combines left/right camera pairs using `np.hstack()`
+- **Vertical stacking**: `join_images_vertically()` stacks top/bottom rows using `np.vstack()`
+- **Size consistency**: Ensures all images have matching dimensions before joining
+
+**Code reference**: 
+- Layout logic: `create_final_stitched_image()` in `camera_stitching.py:185-225`
+- Joining functions: `camera_stitching.py:135-183`
+
+#### ⚡ **6. Real-time Performance Optimization**
+- **One-time setup**: All perspective transforms calculated during initialization, not per-frame
+- **Frame buffering**: Collects frames from all cameras before stitching to ensure synchronization
+- **Efficient processing**: Matrix operations (warpPerspective, resize, hstack/vstack) optimized for ~30 FPS performance
+
+#### 📊 **7. Quality Assurance**
+The system includes comprehensive quality monitoring:
+- **Distortion analysis**: Validates that calibration markers form proper squares with 90° angles
+- **Positioning feedback**: Provides scores for camera centering, uniformity, and alignment
+- **Visual exports**: Generates annotated images showing calibration quality and stitching results
+
+**Code reference**: `distortion_analysis.py` and quality metrics in `analyze_camera_distortion()`
+
+## 🔄 **Complete Data Flow**
+
+### **SETUP PHASE** (Once at startup):
+```
+calibration_markers.json → Calculate Transform Matrices → Store in Memory
+```
+
+### **RUNTIME PHASE** (Every frame at 30 FPS):
+```
+Camera 000 (1280×720) → Sharpen → Apply Stored Matrix → Resize → ┐
+                                                                  ├→ Stitch → Final Image
+Camera 001 (1280×720) → Sharpen → Apply Stored Matrix → Resize → ┘
+```
+
+**🚨 Key Point**: The expensive `cv2.getPerspectiveTransform()` calculation happens ONLY during setup. At runtime, we just use `cv2.warpPerspective()` with the pre-calculated matrices - this is why we achieve 30 FPS performance!
+
+The result is a seamless top-down view where each camera's coverage area is geometrically corrected and properly aligned with the physical table coordinates.
+
 ---
 
 ### Sources
