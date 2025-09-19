@@ -6,13 +6,11 @@ import json
 import os
 
 from image import buffer_to_array, sharpen_and_rotate_image
-from detection import detect_markers
-from detection import detect_markers
+from detection import detect_markers, detect_markers_with_refinement
 from image import sharpen_and_rotate_image
 # from mock_camera import poll_frame_data  # for testing without pyrealsense cameras , using local video file streams instead
 from camera import poll_frame_data
 from distortion_analysis import analyze_camera_distortion
-
 
 
 def save_calibration_markers(camera_setup, timeout: int = 30) -> Dict:
@@ -117,8 +115,8 @@ def save_calibration_markers(camera_setup, timeout: int = 30) -> Dict:
                 detected_markers[camera_id] = {}
                 best_frames[camera_id] = ir_image.copy()
             
-            # Detect markers
-            corners, ids, _ = detect_markers(ir_image)
+            # Detect markers with refinement
+            corners, ids, rejected = detect_markers_with_refinement(ir_image, camera_setup[camera_id])
             
             # Create annotated image with detected markers
             marker_image = ir_image.copy()
