@@ -27,6 +27,10 @@ def get_device_manager() -> DeviceManager:
 
     device_manager.enable_all_devices()
     print(f"Active device serial numbers: {device_manager.get_enabled_devices_ids()}")
+
+    if not device_manager.get_enabled_devices_ids():
+        raise ConnectionError("Could not find any cameras. Did you connect the USB cameras?")
+    
     return device_manager
 
 
