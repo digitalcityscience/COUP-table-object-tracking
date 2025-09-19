@@ -1,5 +1,5 @@
 from camera import get_device_manager
-from show_camera_streams import show_camera_streams_with_orientation_guide, show_single_camera_with_guide
+from show_camera_streams import show_single_camera_with_guide, show_camera_streams
 
 
 def choose_camera_position_with_visual_guide(cam_id):
@@ -186,7 +186,7 @@ def prompt_camera_setup():
     print("First, let's look at all cameras together to understand the setup...")
     print("Press 'Q' to close the overview and continue with individual camera setup.")
     
-    show_camera_streams_with_orientation_guide()
+    show_camera_streams()
 
     # Configure each camera individually with enhanced guidance
     print(f"\n🔧 INDIVIDUAL CAMERA SETUP:")
