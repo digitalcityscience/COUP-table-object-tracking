@@ -28,55 +28,35 @@ def detect_markers(ir_image: List) -> DetectionResult:
     return aruco.detectMarkers(ir_image, aruco_dict, parameters=parameters)
 
 
-def create_calibration_board(camera_config: Dict):
+def create_calibration_board(corners, ids):
     """
     Create an ArUco board from the calibration marker configuration.
     This enables the use of refineDetectedMarkers for better detection.
     """
-    markers = camera_config["calibration_markers"]
-    measurements = camera_config["measurements"]
-    
-    # Extract marker IDs and their physical positions
-    marker_ids = []
-    marker_corners_3d = []
-    
-    for position, marker_info in markers.items():
-        marker_id = int(marker_info["id"])
-        physical_pos = marker_info["physical_position"]
-        
-        marker_ids.append(marker_id)
-        
-        # Create 4 corners for this marker in 3D space (Z=0 for planar board)
-        # Assuming each marker is 1x1 unit square at its physical position
-        corners_3d = np.array([
-            [physical_pos[0] - 0.5, physical_pos[1] + 0.5, 0],  # top-left
-            [physical_pos[0] + 0.5, physical_pos[1] + 0.5, 0],  # top-right  
-            [physical_pos[0] + 0.5, physical_pos[1] - 0.5, 0],  # bottom-right
-            [physical_pos[0] - 0.5, physical_pos[1] - 0.5, 0],  # bottom-left
-        ], dtype=np.float32)
-        
-        marker_corners_3d.append(corners_3d)
-    
     # Create the board
-    board = aruco.Board(marker_corners_3d, aruco_dict, marker_ids)
+    board = aruco.Board(corners, aruco_dict, ids)
     return board
 
 
 def detect_markers_with_refinement(ir_image, camera_config: Dict) -> DetectionResult:
     """
     Detect markers with refinement based on board layout.
+    
+    The refineDetectedMarkers function modifies the corners, ids, and rejected
+    arrays in-place, so we need to pass the direct output from detectMarkers.
     """
-    # Initial detection
-    corners, ids, rejected = detect_markers(ir_image)
+    # Initial detection - get the raw output from aruco.detectMarkers
+    corners, ids, rejected = aruco.detectMarkers(ir_image, aruco_dict, parameters=parameters)
     initial_count = len(corners) if corners is not None else 0
     
     # Create board for this camera
-    board = create_calibration_board(camera_config)
+    board = create_calibration_board(corners, ids)
     
     # Refine detection using board layout
     detector = aruco.ArucoDetector(aruco_dict, parameters)
     
     # Use refineDetectedMarkers to find missing markers
+    # This modifies corners, ids, and rejected IN-PLACE
     detector.refineDetectedMarkers(ir_image, board, corners, ids, rejected)
     
     refined_count = len(corners) if corners is not None else 0
