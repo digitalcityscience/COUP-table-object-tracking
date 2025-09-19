@@ -11,6 +11,8 @@ from detection import detect_markers
 from image import sharpen_and_rotate_image
 # from mock_camera import poll_frame_data  # for testing without pyrealsense cameras , using local video file streams instead
 from camera import poll_frame_data
+from distortion_analysis import analyze_camera_distortion
+
 
 
 def save_calibration_markers(camera_setup, timeout: int = 30) -> Dict:
@@ -254,16 +256,16 @@ def save_calibration_markers(camera_setup, timeout: int = 30) -> Dict:
     # Run distortion analysis on the calibrated markers
     print("\n" + "="*50)
     print("Running distortion analysis...")
-    try:
-        from distortion_analysis import analyze_camera_distortion
-        _distortion_results = analyze_camera_distortion(camera_setup)
-        print("Distortion analysis complete!")
-        print("Check the calibration_visualizations/ directory for detailed reports.")
-    except ImportError:
-        print("Warning: Could not import distortion_analysis module. Skipping distortion analysis.")
-    except Exception as e:
-        print(f"Error during distortion analysis: {e}")
-        print("Continuing without distortion analysis...")
+
+    distortion_results = analyze_camera_distortion(camera_setup)
+    print("Distortion analysis complete!")
+    for cam_id, _config in camera_setup.items():
+        if distortion_results[cam_id].get("overall_score") <= 0.8:
+            raise ValueError(f"Something went wrong during calibration of camera {cam_id}. Please check  calibration_visualizations/ directory for detailed reports. Try to fix the issue and rerun calibration")
+
+    print("Check the calibration_visualizations/ directory for detailed reports.")
+
+
 
     print("\n" + "="*80)
     print("🎉 CALIBRATION MARKER DETECTION COMPLETE!")
