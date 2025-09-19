@@ -11,7 +11,7 @@ def choose_camera_position_with_visual_guide(cam_id):
     print("="*70)
     
     # Show the specific camera with orientation guide
-    show_single_camera_with_guide(cam_id, duration_seconds=8)
+    show_single_camera_with_guide(cam_id)
     
     print("\n📋 INSTRUCTIONS:")
     print("You just saw the camera view with orientation arrows and corner labels.")
@@ -74,7 +74,7 @@ def prompt_calibration_marker_ids_with_validation(cam_id):
     
     # Show the camera again so user can see the markers
     print("Showing camera view again so you can identify marker IDs...")
-    show_single_camera_with_guide(cam_id, duration_seconds=10)
+    show_single_camera_with_guide(cam_id)
     
     print("\n📋 MARKER ID SETUP:")
     print("Look at the camera window you just saw and identify the ArUco marker IDs")
