@@ -49,23 +49,6 @@ def poll_frame_data() -> Frame:
             # device_manager.disable_streams()
 
 
-def get_latest_frame_data() -> Iterable[Tuple[int, Any]]:
-    device_manager = None
-    try:
-        device_manager = get_device_manager()
-        frames = []
-        frames = device_manager.poll_frames()
-        for camera_id in frames:
-            frame = frames[camera_id]
-            frame_value = list(frame.values())[0]
-            frame_data = frame_value.get_data()
-            short_camera_id = camera_id[0][-3:]
-            yield short_camera_id, frame_data
-    finally:
-        if device_manager:
-            device_manager.disable_streams()
-
-
 def write_images():
     device_manager = None
     try:

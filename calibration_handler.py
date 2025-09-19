@@ -61,6 +61,7 @@ def check_calibration_exists(file_path: str = "calibration_markers.json") -> boo
 def run_initial_calibration_if_needed():
     # Step 1: Check if calibration already exists
     if check_calibration_exists():
+        print("Calibration file found, skipping initial calibration")
         return
     
     """

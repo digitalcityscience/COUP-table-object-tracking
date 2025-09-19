@@ -5,7 +5,6 @@ from typing import Dict
 import json
 import os
 
-from camera import poll_frame_data
 from image import buffer_to_array, sharpen_and_rotate_image
 from detection import detect_markers
 from detection import detect_markers
