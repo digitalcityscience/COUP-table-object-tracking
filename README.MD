@@ -39,6 +39,8 @@ Previous versions could suffer from image flipping issues due to coordinate syst
 - **Position data preservation**: Ensures camera position information is saved correctly
 - **Coordinate system validation**: Verifies proper mapping between physical and image coordinates
 
+![Calibration View](calibration_visualizations/cam_view_guidance_directions.png)
+
 ### **Visual Calibration Features**
 - 🎯 **Orientation arrows**: Green arrows show TOP/BOTTOM, blue arrows show LEFT/RIGHT
 - 📍 **Corner labels**: Yellow labels mark each corner position in the camera view
@@ -119,6 +121,8 @@ During calibration, each camera shows:
 - **Blue arrows**: LEFT (←) and RIGHT (→) directions in image coordinates  
 - **Yellow labels**: Corner position names (TOP-LEFT, TOP-RIGHT, etc.)
 - **Real-time markers**: Detected ArUco markers with their IDs
+![Calibration View](calibration_visualizations/cam_view_guidance_directions.png)
+
 
 ### **Coordinate System Mapping**
 - **Image coordinates**: Origin (0,0) at top-left, X increases right, Y increases down
