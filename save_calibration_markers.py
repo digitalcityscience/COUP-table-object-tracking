@@ -166,17 +166,13 @@ def save_calibration_markers(camera_setup, timeout: int = 30) -> Dict:
             elapsed = time.time() - start_time
             print(f"Progress: {found_markers}/{total_markers} markers found ({elapsed:.1f}s elapsed)")
             
-            # Check if we've found all markers for this camera
-            camera_complete = []
+            # Print missing markers
             for cam_id, markers in markers_to_find.items():
-                if len(markers) == 0:
-                    camera_complete.append(cam_id)
-            
-            if camera_complete:
-                print(f"Completed cameras: {camera_complete}")
-            
+                print(f"Missing markers {markers} for cam {cam_id}")
+                                 
             # Check if we've found all markers
             remaining_markers = sum(len(markers) for markers in markers_to_find.values())
+
             if remaining_markers == 0:
                 print("All calibration markers found!")
                 break
