@@ -10,7 +10,7 @@ parameters.cornerRefinementMethod = aruco.CORNER_REFINE_CONTOUR
 parameters.maxMarkerPerimeterRate = 0.3  # increased from 0.2
 parameters.minMarkerPerimeterRate = 0.03  # decreased from 0.05
 parameters.polygonalApproxAccuracyRate = 0.05  # increased from 0.02
-parameters.minOtsuStdDev = 5.0  # uncommented and set
+parameters.minOtsuStdDev = 5.0  # the higher the value, the more color contrast is needed between marker and rest
 # parameters.perspectiveRemovePixelPerCell = 10
 # parameters.perspectiveRemoveIgnoredMarginPerCell = 0.13
 # parameters.errorCorrectionRate = 0.3
@@ -19,6 +19,13 @@ parameters.adaptiveThreshWinSizeMin = 3  # uncommented
 parameters.adaptiveThreshWinSizeMax = 23  # uncommented
 parameters.adaptiveThreshWinSizeStep = 10  # uncommented
 parameters.adaptiveThreshConstant = 7  # uncommented
+
+# params helping to detect the markers close to edges or on small buildings
+minDistanceToBorder: 0 or 1 # (allow markers right at image edges)
+minCornerDistanceRate: 0.01  #(tight corner detection for small markers)
+markerBorderBits: 1 #(expect minimal white border)
+polygonalApproxAccuracyRate: 0.01 # (more flexible shape approximation)
+perspectiveRemoveIgnoredMarginPerCell: 0.05 # (minimal margin ignored)
 
 Corner = numpy.ndarray
 DetectionResult = Tuple[List[Corner], List[int], List]
