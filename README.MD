@@ -6,14 +6,17 @@ This repo powers real‑time table object tracking using IR cameras (Intel RealS
 
 ### What it does
 - Marker detection: Finds ArUco markers per frame and maps them to table/object identities.
-- Calibration: Uses 4 corner markers per camera to compute perspective transforms to a table‑aligned view.
+- **Enhanced calibration**: Uses 4 corner markers per camera with **visual orientation guides** to prevent coordinate system mismatches and image flipping.
 - Stitching: Warps each camera to table coordinates and joins them into a single image (1×2 or 2×2 layout).
 - Distortion analysis: Quantifies how "square" and centered the calibration is; exports annotated reports to guide camera positioning.
 - Streaming: Runs a TCP server on localhost:8052, pushing fused marker updates for external clients (Unity).
 
 ### Key components
 - `server.py`: Entry point; runs calibration, sets up stitching, processes streams, serves tracking data.
-- `find_calibration_markers.py`: Detects 4 calibration markers per camera; exports per‑camera visuals.
+- `calibration_handler.py`: **Enhanced calibration system** with visual guides to prevent coordinate system issues.
+- `camera_setup.py`: **Visual camera positioning** with orientation arrows and corner labels.
+- `save_calibration_markers.py`: Marker detection with **position data preservation** to maintain coordinate system integrity.
+- `show_camera_streams.py`: **Enhanced camera streams** with visual orientation guides.
 - `camera_stitching.py`: Computes perspective transforms, normalizes scale, and stitches camera views.
 - `distortion_analysis.py`: Rates calibration quality and exports per‑camera and summary reports.
 - `detection.py`, `hud.py`, `tracker.py`: Marker detection, on‑screen HUD, and tracking utilities.
@@ -24,6 +27,24 @@ Exported to `calibration_visualizations/`:
 - Combined calibration view: `calibration_visualizations/combined_calibration.png`
 - Distortion reports: `calibration_visualizations/camera_XXX_distortion_analysis.png`, `calibration_visualizations/distortion_summary.png`
 - Stitched result sample: `calibration_visualizations/stitched_sample.png`
+
+## 🆕 **Enhanced Calibration System**
+
+### **Problem Solved: Coordinate System Mismatches**
+Previous versions could suffer from image flipping issues due to coordinate system mismatches between physical marker placement and camera image coordinates. The enhanced calibration system prevents this by:
+
+- **Visual orientation guides**: Shows TOP/BOTTOM/LEFT/RIGHT arrows in each camera view
+- **Corner position labels**: Clearly marks TOP-LEFT, TOP-RIGHT, etc. in camera images  
+- **Interactive guidance**: Step-by-step setup with visual feedback for each camera
+- **Position data preservation**: Ensures camera position information is saved correctly
+- **Coordinate system validation**: Verifies proper mapping between physical and image coordinates
+
+### **Visual Calibration Features**
+- 🎯 **Orientation arrows**: Green arrows show TOP/BOTTOM, blue arrows show LEFT/RIGHT
+- 📍 **Corner labels**: Yellow labels mark each corner position in the camera view
+- 📷 **Individual camera setup**: Each camera configured separately with visual guidance
+- ✅ **Real-time validation**: Shows detected markers overlaid on orientation guides
+- 💾 **Data integrity**: Verifies camera position data is properly saved
 
 ## How to use it
 
@@ -36,14 +57,26 @@ pip install -r requirements.txt
 ```
 python server.py
 ```
+- **NEW**: Enhanced calibration with visual orientation guides runs automatically
 - Performs/loads calibration, initializes stitching, and starts streaming on `localhost:8052`.
 - A debug monitor shows stitched output and detected markers.
 
-### 3) Connect your client
+### 3) Enhanced Calibration Process
+When you first run the server (or choose to recalibrate):
+
+1. **Camera Overview**: All cameras shown together with orientation guides
+2. **Individual Camera Setup**: Each camera configured separately:
+   - Visual orientation guide shows coordinate system
+   - User selects camera position (top_left, top_right, etc.)
+   - User identifies marker IDs in each corner
+3. **Marker Detection**: System detects and saves marker positions
+4. **Validation**: Verifies coordinate system integrity
+
+### 4) Connect your client
 - Unity (COUP‑TangibleTable) or any TCP client can consume updates from `localhost:8052`.
 - Use `client.py` for basic testing of the TCP connection.
 
-### 4) Inspect calibration and quality
+### 5) Inspect calibration and quality
 - Check `calibration_visualizations/` for:
   - `camera_XXX_markers.png`, `combined_calibration.png`
   - Distortion analysis: `camera_XXX_distortion_analysis.png`, `distortion_summary.png`
@@ -57,21 +90,43 @@ python distortion_analysis.py
 ```
 python test_distortion_analysis.py
 ```
-- Explore stitching/processing logic in `camera_stitching.py`; calibration flow in `find_calibration_markers.py`.
+- Explore stitching/processing logic in `camera_stitching.py`; calibration flow in `save_calibration_markers.py`.
 
 ### Tips
+- **NEW**: The enhanced calibration system prevents most coordinate system issues automatically
 - Keep the camera centered over the table; aim for "Good" (≥0.90) or "Excellent" (≥0.95) distortion scores.
 - If the table/camera moves, re‑run calibration to refresh transforms and quality reports.
+- **NEW**: If you experience image flipping, recalibrate with the enhanced visual guides.
 
 ## How to run
 - Install requirements
 - Run server.py 
+- **NEW**: Follow the enhanced calibration process with visual orientation guides
 - Connect to the opened websocket to read results. (By running the COUP-TangibleTable unity project)
 - A visual debug monitor will show you what the camera sees and which markers are recognized.
 
 Depending on your light conditions you might need to choose different settings for exposure and gain in the `realsense/realsense_device_manager.py`.
 
 ---
+
+## 🎯 **Enhanced Calibration and Coordinate System**
+
+The enhanced calibration system addresses coordinate system mismatches that could cause image flipping issues in previous versions.
+
+### **Visual Orientation System**
+During calibration, each camera shows:
+- **Green arrows**: TOP (↑) and BOTTOM (↓) directions in image coordinates
+- **Blue arrows**: LEFT (←) and RIGHT (→) directions in image coordinates  
+- **Yellow labels**: Corner position names (TOP-LEFT, TOP-RIGHT, etc.)
+- **Real-time markers**: Detected ArUco markers with their IDs
+
+### **Coordinate System Mapping**
+- **Image coordinates**: Origin (0,0) at top-left, X increases right, Y increases down
+- **Physical coordinates**: Origin (0,0) at physical top-left of table, X increases right, Y increases down
+- **Proper mapping**: Enhanced system ensures correct correspondence between image and physical coordinates
+
+### **Position Data Preservation**
+The system now ensures that camera position information (top_left, top_right, etc.) is properly saved in the calibration file, preventing layout detection failures that could cause coordinate system issues.
 
 ## Calibration and Distortion Analysis
 After calibration markers are detected, a distortion analysis is run to verify that:
@@ -113,9 +168,9 @@ python distortion_analysis.py
 The stitching pipeline processes each camera stream with enhancement (sharpening/rotation) and perspective transforms, then joins them into a unified view.
 
 The system automatically:
-1. Loads calibration from `calibration_markers.json`
+1. Loads calibration from `calibration_markers.json` **with preserved position data**
 2. Applies perspective transforms to align each camera to table coordinates
-3. Normalizes scales and stitches cameras into a single top-down view
+3. Normalizes scales and stitches cameras into a single top-down view **with correct orientation**
 4. Runs real-time marker detection on the stitched result
 
 ### Detailed Stitching Pipeline
@@ -131,6 +186,7 @@ The multi-camera stitching system (`camera_stitching.py`) transforms individual 
 
 #### **1. Load Calibration Data** 
 - **Reads `calibration_markers.json`**: Contains pixel positions of 4 ArUco markers per camera (detected during initial calibration)
+- **NEW**: **Includes camera position data** to ensure proper layout detection
 - **No live camera processing**: Uses pre-recorded marker positions from calibration file
 
 #### **2. Calculate Perspective Transforms** (`calculate_perspective_transform()`)
@@ -141,7 +197,7 @@ The multi-camera stitching system (`camera_stitching.py`) transforms individual 
 #### **3. Pre-calculate Output Dimensions**
 - **Maps physical to pixels**: 15 pixels/cm scale factor applied to table measurements
 - **Determines unified scale**: All cameras normalized to same pixel dimensions
-- **Layout analysis**: Detects camera positions (top-left, top-right, etc.) from marker coordinates
+- **NEW**: **Enhanced layout analysis**: Uses preserved camera position data for correct arrangement
 
 **🎯 Result**: Setup returns a configuration object with pre-calculated transforms, dimensions, and layout - **NO MORE CALCULATIONS NEEDED**
 
@@ -184,6 +240,7 @@ transform_matrix = cv2.getPerspectiveTransform(src_points, dst_points)  # ← LI
 - **Corrects rotation**: If the camera is rotated relative to the table, the matrix straightens it
 - **Corrects scale**: Maps the physical 74×74cm table area to exactly 1110×1110 pixels (15 pixels/cm)
 - **Corrects position**: Centers the table area in the output image with proper 3cm borders
+- **NEW**: **Preserves coordinate system**: Enhanced calibration ensures proper orientation mapping
 
 </details>
 
@@ -216,29 +273,31 @@ transformed = cv2.warpPerspective(processed_frame, transforms[camera_id], output
 #### **3. Scale Normalization & Image Stitching**
 - **Fast resize**: Each transformed image is resized to unified dimensions using pre-calculated values
 - **Frame buffering**: Collect frames from all cameras before stitching to ensure synchronization
-- **Layout-based joining**: Use pre-determined camera layout to stitch images (horizontal then vertical stacking)
+- **NEW**: **Correct layout-based joining**: Uses preserved camera position data for proper image arrangement
 
 **Code reference**: `process_and_join_streams()` in `camera_stitching.py:276-291`
 
 #### **Performance Summary:**
 - **Setup**: Heavy calculations done ONCE (perspective transforms, dimensions, layout)  
 - **Runtime**: Only fast operations per frame (matrix multiplication, resize, image stacking)
-- **Result**: ~30 FPS real-time stitching performance
+- **Result**: ~30 FPS real-time stitching performance **with correct orientation**
 
 ---
 
 ## 📊 **Image Stitching Details** (`create_final_stitched_image()`)
 The system intelligently combines camera feeds based on detected layout:
 
-**Layout Detection**:
+**Enhanced Layout Detection**:
 - **2×2 grid**: Full table coverage with cameras in all four positions
 - **1×2 horizontal**: Cameras only in top row OR bottom row
+- **NEW**: **Correct position mapping**: Uses preserved camera position data instead of guessing
 - **Fallback handling**: Uses black placeholders for missing camera positions (defensive programming)
 
 **Joining Process**:
 - **Horizontal joining**: `join_images_horizontally()` combines left/right camera pairs using `np.hstack()`
 - **Vertical stacking**: `join_images_vertically()` stacks top/bottom rows using `np.vstack()`
 - **Size consistency**: Ensures all images have matching dimensions before joining
+- **NEW**: **Correct orientation**: No more accidental image flipping due to coordinate system issues
 
 **Code reference**: 
 - Layout logic: `create_final_stitched_image()` in `camera_stitching.py:185-225`
@@ -254,6 +313,7 @@ The system includes comprehensive quality monitoring:
 - **Distortion analysis**: Validates that calibration markers form proper squares with 90° angles
 - **Positioning feedback**: Provides scores for camera centering, uniformity, and alignment
 - **Visual exports**: Generates annotated images showing calibration quality and stitching results
+- **NEW**: **Coordinate system validation**: Verifies proper mapping between physical and image coordinates
 
 **Code reference**: `distortion_analysis.py` and quality metrics in `analyze_camera_distortion()`
 
@@ -261,19 +321,23 @@ The system includes comprehensive quality monitoring:
 
 ### **SETUP PHASE** (Once at startup):
 ```
-calibration_markers.json → Calculate Transform Matrices → Store in Memory
+Enhanced Camera Setup → calibration_markers.json → Calculate Transform Matrices → Store in Memory
+        ↓                        ↓
+Visual Orientation Guides    Position Data Preserved
 ```
 
 ### **RUNTIME PHASE** (Every frame at 30 FPS):
 ```
 Camera 000 (1280×720) → Sharpen → Apply Stored Matrix → Resize → ┐
-                                                                  ├→ Stitch → Final Image
+                                                                  ├→ Correct Stitching → Final Image
 Camera 001 (1280×720) → Sharpen → Apply Stored Matrix → Resize → ┘
+                                            ↑
+                                   Proper Layout Detection
 ```
 
-**🚨 Key Point**: The expensive `cv2.getPerspectiveTransform()` calculation happens ONLY during setup. At runtime, we just use `cv2.warpPerspective()` with the pre-calculated matrices - this is why we achieve 30 FPS performance!
+**🚨 Key Point**: The expensive `cv2.getPerspectiveTransform()` calculation happens ONLY during setup. At runtime, we just use `cv2.warpPerspective()` with the pre-calculated matrices - this is why we achieve 30 FPS performance! **NEW**: Enhanced calibration ensures the matrices are calculated with correct coordinate system mapping.
 
-The result is a seamless top-down view where each camera's coverage area is geometrically corrected and properly aligned with the physical table coordinates.
+The result is a seamless top-down view where each camera's coverage area is geometrically corrected and properly aligned with the physical table coordinates **without image flipping issues**.
 
 ---
 
