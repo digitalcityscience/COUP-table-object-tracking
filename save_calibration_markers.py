@@ -111,6 +111,15 @@ def save_calibration_markers(camera_setup, timeout: int = 30) -> Dict:
             
             # Process image
             ir_image = sharpen_and_rotate_image(buffer_to_array(image_data))
+            ir_image = cv2.copyMakeBorder(
+                ir_image,
+                top=10,
+                bottom=10,
+                left=10,
+                right=10,
+                borderType=cv2.BORDER_CONSTANT,
+                value=[255, 255, 255]
+            )
             
             # Initialize tracking for this camera if needed
             if camera_id not in detected_markers:
@@ -142,7 +151,7 @@ def save_calibration_markers(camera_setup, timeout: int = 30) -> Dict:
                                 
                                 # Update the pixel position if not already found
                                 if "pixel_position" not in marker_info.keys():
-                                    camera_setup[camera_id]["calibration_markers"][position]["pixel_position"] = [float(center_x), float(center_y)]
+                                    camera_setup[camera_id]["calibration_markers"][position]["pixel_position"] = [float(center_x-10), float(center_y-10)]
                                     
                                     # Store marker info for final visualization - only center position
                                     detected_markers[camera_id][position] = {
