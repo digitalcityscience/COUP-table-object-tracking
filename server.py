@@ -36,7 +36,6 @@ loop = asyncio.new_event_loop()
 
 async def main():
     # Runs the initial table calibration setup if no calibration file is found
-    # todo "there is no calibration file, run calibration"
     run_initial_calibration_if_needed()
     # Initialize camera stitching system at startup
     global stitching_setup

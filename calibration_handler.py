@@ -57,16 +57,12 @@ def check_calibration_exists(file_path: str = "calibration_markers.json") -> boo
         return False
 
 
-def prompt_recalibration():    
-    user_input = input("Enter 1 to recalibrate")
-    if user_input == '1':
-        print("Recalibrating...")
-        return True
-    else:
-        return False
-
 
 def run_initial_calibration_if_needed():
+    # Step 1: Check if calibration already exists
+    if check_calibration_exists():
+        return
+    
     """
     Run the initial calibration setup with enhanced visual guidance if needed
     
@@ -76,26 +72,15 @@ def run_initial_calibration_if_needed():
     3. Runs enhanced camera setup with visual orientation guides
     4. Performs calibration marker detection and saves results
     """
+
+    print("\n📝 NO EXISTING CALIBRATION FOUND")
+    print("Running initial calibration setup with enhanced visual guides...")
+    
+    
     print("\n" + "="*80)
     print("🚀 CALIBRATION SYSTEM - ENHANCED WITH VISUAL GUIDES")
-    print("="*80)
-    print("This system prevents coordinate system mismatches and image flipping")
-    print("by providing clear visual orientation guides during setup.")
-    print("="*80)
     
-    # Step 1: Check if calibration already exists
-    if check_calibration_exists():
-        if not prompt_recalibration():
-            print("📄 Using existing calibration file")
-            return
         
-        print("\n🔄 OVERRIDING EXISTING CALIBRATION")
-        print("The existing calibration will be replaced with a new one using")
-        print("enhanced visual guidance to ensure proper coordinate system setup.")
-    else:
-        print("\n📝 NO EXISTING CALIBRATION FOUND")
-        print("Running initial calibration setup with enhanced visual guides...")
-    
     # Step 2: Run enhanced camera setup
     print("\n" + "="*80)
     print("🎯 STEP 1: ENHANCED CAMERA SETUP")
