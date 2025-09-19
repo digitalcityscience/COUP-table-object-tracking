@@ -6,7 +6,6 @@ import sys
 import time
 
 from marker import Markers, map_detected_markers
-from tracker import track_v2
 from time import time_ns
 from detection import detect_markers
 from hud import draw_monitor_window, draw_status_window
@@ -63,9 +62,7 @@ async def send_tracking_matches(connection):
         draw_monitor_window(stitched_image, corners, rejectedImgPoints, "stitched")
         draw_status_window(buildingDict, "stitched")
         
-        # Create pseudo-frame for tracking
-        stitched_frame = ("stitched", stitched_image)
-        markers_holder.addMarkers(track_v2(stitched_frame))  # TODO detection is run twice. already in dobos code.
+        markers_holder.addMarkers(list(buildingDict.values())) 
         
         # Send data to Unity client
         if (time_ns() - last_sent > 200_000_000):

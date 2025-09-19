@@ -1,98 +1,110 @@
 {
-  "000": {
+  "104": {
+    "position": "top_right",
     "calibration_markers": {
       "top_left": {
-        "id": "48",
-        "pixel_position": [
-          307.072021484375,
-          31.44340705871582
-        ],
+        "id": "44",
         "physical_position": [
-          3,
-          3
+          3.0,
+          3.0
+        ],
+        "pixel_position": [
+          363.5495300292969,
+          13.161258697509766
         ]
       },
       "top_right": {
-        "id": "44",
-        "pixel_position": [
-          1033.1422119140625,
-          27.768253326416016
-        ],
+        "id": "16",
         "physical_position": [
-          77,
-          3
+          77.0,
+          3.0
+        ],
+        "pixel_position": [
+          1071.8126220703125,
+          20.212364196777344
         ]
       },
       "bottom_right": {
-        "id": "41",
-        "pixel_position": [
-          1033.4739990234375,
-          762.2857666015625
-        ],
+        "id": "12",
         "physical_position": [
-          77,
-          77
+          77.0,
+          77.0
+        ],
+        "pixel_position": [
+          1080.827392578125,
+          740.4356689453125
         ]
       },
       "bottom_left": {
-        "id": "43",
-        "pixel_position": [
-          311.39794921875,
-          756.7340087890625
-        ],
+        "id": "45",
         "physical_position": [
-          3,
-          77
+          3.0,
+          77.0
+        ],
+        "pixel_position": [
+          356.0056457519531,
+          745.72412109375
         ]
       }
+    },
+    "measurements": {
+      "width": 80.0,
+      "height": 80.0,
+      "marker_offset": 3.0
     }
   },
-  "001": {
+  "863": {
+    "position": "top_left",
     "calibration_markers": {
       "top_left": {
-        "id": "68",
-        "pixel_position": [
-          366.7620849609375,
-          32.27643585205078
-        ],
+        "id": "46",
         "physical_position": [
-          83,
-          3
+          3.0,
+          3.0
+        ],
+        "pixel_position": [
+          304.39306640625,
+          41.840972900390625
         ]
       },
       "top_right": {
-        "id": "62",
-        "pixel_position": [
-          1084.028564453125,
-          33.047550201416016
-        ],
+        "id": "43",
         "physical_position": [
-          157,
-          3
+          77.0,
+          3.0
+        ],
+        "pixel_position": [
+          1030.24658203125,
+          36.16034698486328
         ]
       },
       "bottom_right": {
-        "id": "69",
-        "pixel_position": [
-          1089.3414306640625,
-          758.98095703125
-        ],
+        "id": "42",
         "physical_position": [
-          157,
-          77
+          77.0,
+          77.0
+        ],
+        "pixel_position": [
+          1042.40380859375,
+          765.0488891601562
         ]
       },
       "bottom_left": {
-        "id": "999",
-        "pixel_position": [
-          357,
-          762
-        ],
+        "id": "40",
         "physical_position": [
-          83,
-          77
+          3.0,
+          77.0
+        ],
+        "pixel_position": [
+          310.30084228515625,
+          766.0656127929688
         ]
       }
+    },
+    "measurements": {
+      "width": 80.0,
+      "height": 80.0,
+      "marker_offset": 3.0
     }
   }
 }

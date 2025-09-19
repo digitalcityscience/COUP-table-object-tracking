@@ -1,24 +1,5 @@
-# Clean up user interaction
-     - run server.py to work as always, just with stitched image as output
-     - run calibration only if no current calibration detected
-     - camera not connected error
-
-# Document how the calibration works
-    - entering table dimensions
-    - detecting of corner markers
-    - saving of calibration file
-    - saving of calibration stats / pictures
-
-# Document how the stitching works
-    - what happens to each cameras picture (cropping, distortion correction for 90degree angles)
-    - how are the streams joined (layout, stacking of images )
-
-
-# TODO Detection settings
-    - we seem to need different detection settings for the stitched and individual pictures
-    - best settings for stitched pictures unknown. we should try with a script to find optimal settings
-     
 
 # TODO unity:
 - adopt the unity websocket client to expect only 1 camera (joined camera) input instead of 2 different camera streams
+- project markers for projection offset heatmap analysis
 
