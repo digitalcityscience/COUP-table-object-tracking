@@ -14,7 +14,7 @@ This repo powers real‑time table object tracking using IR cameras (Intel RealS
 ### Key components
 - `server.py`: Entry point; runs calibration, sets up stitching, processes streams, serves tracking data.
 - `calibration_handler.py`: **Enhanced calibration system** with visual guides to prevent coordinate system issues.
-- `camera_setup.py`: **Visual camera positioning** with orientation arrows and corner labels.
+- `camera_setup.py`: **Choose camera and calibration marker positions** with visual guidance through orientation arrows and corner labels.
 - `save_calibration_markers.py`: Marker detection with **position data preservation** to maintain coordinate system integrity.
 - `show_camera_streams.py`: **Enhanced camera streams** with visual orientation guides.
 - `camera_stitching.py`: Computes perspective transforms, normalizes scale, and stitches camera views.
