@@ -56,11 +56,11 @@ async def send_tracking_matches(connection):
     for stitched_image in process_and_join_streams(stitching_setup):
         # Run marker detection on stitched image
         corners, ids, rejectedImgPoints = detect_markers(stitched_image) # runs detection.
-        buildingDict = map_detected_markers("stitched", ids, corners)
+        buildingDict = map_detected_markers("000", ids, corners)
         
         # Show stitched result with markers
-        draw_monitor_window(stitched_image, corners, rejectedImgPoints, "stitched")
-        draw_status_window(buildingDict, "stitched")
+        draw_monitor_window(stitched_image, corners, rejectedImgPoints, "000")
+        draw_status_window(buildingDict, "000")
         
         markers_holder.addMarkers(list(buildingDict.values())) 
         
