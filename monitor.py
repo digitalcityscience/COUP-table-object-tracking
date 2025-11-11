@@ -11,5 +11,5 @@ while True:
         ir_image = sharpen_and_rotate_image(buffer_to_array(image))
         corners, ids, rejectedImgPoints = detect_markers(ir_image)
         markerDict = map_detected_markers(camera_id, ids, corners)
-        draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id)
+        draw_monitor_window(ir_image, corners, rejectedImgPoints, camera_id, ids)
         draw_status_window(markerDict, camera_id)

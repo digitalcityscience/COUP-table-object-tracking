@@ -1,4 +1,5 @@
 import time
+import numpy as np
 from functools import lru_cache
 from time import sleep
 from typing import Any, Iterable, Tuple
@@ -11,7 +12,8 @@ from realsense.realsense_device_manager import DeviceManager
 FRAMES_PER_SECOND = 30
 
 Frame = Iterable[Tuple[int, Any]]
-
+Resolution_X = 1280
+Resolution_Y = 800
 
 
 @lru_cache(1)
@@ -19,12 +21,16 @@ def get_device_manager() -> DeviceManager:
     print("initializing realsense device manager")
     config = rs.config()
     config.enable_stream(
-        rs.stream.infrared, 1, 1280, 800, rs.format.y8, FRAMES_PER_SECOND
+        rs.stream.infrared, 1, Resolution_X, Resolution_Y, rs.format.y8, FRAMES_PER_SECOND
     )
     device_manager = DeviceManager(rs.context(), config)
 
     device_manager.enable_all_devices()
     print(f"Active device serial numbers: {device_manager.get_enabled_devices_ids()}")
+
+    if not device_manager.get_enabled_devices_ids():
+        raise ConnectionError("Could not find any cameras. Did you connect the USB cameras?")
+    
     return device_manager
 
 
@@ -43,24 +49,8 @@ def poll_frame_data() -> Frame:
                 yield short_camera_id, frame_data
     finally:
         if device_manager:
-            device_manager.disable_streams()
-
-
-def get_latest_frame_data() -> Iterable[Tuple[int, Any]]:
-    device_manager = None
-    try:
-        device_manager = get_device_manager()
-        frames = []
-        frames = device_manager.poll_frames()
-        for camera_id in frames:
-            frame = frames[camera_id]
-            frame_value = list(frame.values())[0]
-            frame_data = frame_value.get_data()
-            short_camera_id = camera_id[0][-3:]
-            yield short_camera_id, frame_data
-    finally:
-        if device_manager:
-            device_manager.disable_streams()
+            print("hello")  # TODO whats going on here
+            # device_manager.disable_streams()
 
 
 def write_images():

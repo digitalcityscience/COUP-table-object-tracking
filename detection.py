@@ -4,21 +4,21 @@ from typing import List, Tuple, Union
 import numpy
 import cv2.aruco as aruco
 
-aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_250)
-parameters = aruco.DetectorParameters_create()
+aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_250)
+parameters = aruco.DetectorParameters()
 parameters.cornerRefinementMethod = aruco.CORNER_REFINE_CONTOUR
-parameters.maxMarkerPerimeterRate = 0.2
-parameters.minMarkerPerimeterRate = 0.05
-parameters.polygonalApproxAccuracyRate = 0.03
-# parameters.minOtsuStdDev = 2.0
+parameters.maxMarkerPerimeterRate = 0.3  # increased from 0.2
+parameters.minMarkerPerimeterRate = 0.03  # decreased from 0.05
+parameters.polygonalApproxAccuracyRate = 0.05  # increased from 0.02
+parameters.minOtsuStdDev = 5.0  # uncommented and set
 # parameters.perspectiveRemovePixelPerCell = 10
 # parameters.perspectiveRemoveIgnoredMarginPerCell = 0.13
 # parameters.errorCorrectionRate = 0.3
 
-# parameters.adaptiveThreshWinSizeMin = 3
-# parameters.adaptiveThreshWinSizeMax = 23
-# parameters.adaptiveThreshWinSizeStep = 5
-# parameters.adaptiveThreshConstant = 7
+parameters.adaptiveThreshWinSizeMin = 3  # uncommented
+parameters.adaptiveThreshWinSizeMax = 23  # uncommented
+parameters.adaptiveThreshWinSizeStep = 10  # uncommented
+parameters.adaptiveThreshConstant = 7  # uncommented
 
 Corner = numpy.ndarray
 DetectionResult = Tuple[List[Corner], List[int], List]

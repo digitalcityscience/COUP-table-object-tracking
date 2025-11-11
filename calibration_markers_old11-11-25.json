@@ -1,0 +1,110 @@
+{
+  "170": {
+    "position": "top_left",
+    "calibration_markers": {
+      "top_left": {
+        "id": "48",
+        "physical_position": [
+          2.0,
+          2.0
+        ],
+        "pixel_position": [
+          291.99981689453125,
+          33.338104248046875
+        ]
+      },
+      "top_right": {
+        "id": "60",
+        "physical_position": [
+          78.0,
+          2.0
+        ],
+        "pixel_position": [
+          1016.9519653320312,
+          33.465904235839844
+        ]
+      },
+      "bottom_right": {
+        "id": "62",
+        "physical_position": [
+          78.0,
+          78.0
+        ],
+        "pixel_position": [
+          1014.89990234375,
+          749.7130126953125
+        ]
+      },
+      "bottom_left": {
+        "id": "52",
+        "physical_position": [
+          2.0,
+          78.0
+        ],
+        "pixel_position": [
+          298.76104736328125,
+          757.0320434570312
+        ]
+      }
+    },
+    "measurements": {
+      "width": 80.0,
+      "height": 80.0,
+      "marker_offset": 2.0
+    }
+  },
+  "282": {
+    "position": "top_right",
+    "calibration_markers": {
+      "top_left": {
+        "id": "63",
+        "physical_position": [
+          2.0,
+          2.0
+        ],
+        "pixel_position": [
+          276.87237548828125,
+          39.182430267333984
+        ]
+      },
+      "top_right": {
+        "id": "72",
+        "physical_position": [
+          78.0,
+          2.0
+        ],
+        "pixel_position": [
+          1010.2025146484375,
+          41.085147857666016
+        ]
+      },
+      "bottom_right": {
+        "id": "40",
+        "physical_position": [
+          78.0,
+          78.0
+        ],
+        "pixel_position": [
+          1008.8585815429688,
+          768.0265502929688
+        ]
+      },
+      "bottom_left": {
+        "id": "65",
+        "physical_position": [
+          2.0,
+          78.0
+        ],
+        "pixel_position": [
+          278.9711608886719,
+          773.6387939453125
+        ]
+      }
+    },
+    "measurements": {
+      "width": 80.0,
+      "height": 80.0,
+      "marker_offset": 2.0
+    }
+  }
+}
