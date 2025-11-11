@@ -2,4 +2,4 @@
 # TODO unity:
 - adopt the unity websocket client to expect only 1 camera (joined camera) input instead of 2 different camera streams
 - project markers for projection offset heatmap analysis
-
+- do we still need to ahrdcode the position? We don´t move the markers anymore so it makes more sense to just let them on the spot we position them. MAYBE delete CullEverything ExceptMArker or cut it down!
