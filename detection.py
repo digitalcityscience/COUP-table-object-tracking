@@ -4,8 +4,8 @@ from typing import List, Tuple, Union
 import numpy
 import cv2.aruco as aruco
 
-aruco_dict = aruco.Dictionary_get(aruco.DICT_4X4_250)
-parameters = aruco.DetectorParameters_create()
+aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_4X4_250)
+parameters = aruco.DetectorParameters()
 parameters.cornerRefinementMethod = aruco.CORNER_REFINE_CONTOUR
 parameters.maxMarkerPerimeterRate = 0.2
 parameters.minMarkerPerimeterRate = 0.05

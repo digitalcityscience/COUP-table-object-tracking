@@ -104,7 +104,7 @@ def handle_key_presses() -> None:
     if key == ord("4"):
         selectedPoint = 3
         print("point 4")
-    elif key is not -1:
+    elif key != -1:
         handleKeypress(key, selectedPoint)
 
 

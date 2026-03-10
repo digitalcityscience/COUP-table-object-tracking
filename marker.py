@@ -140,10 +140,10 @@ def map_detected_markers(
     markerDict: Dict[int, Marker] = {}
     if ids is not None:
         for i in range(0, len(ids)):
-            markerID = int(ids[i])
+            markerID = int(ids[i][0])
             now = time.time()
 
-            if markerID is not 500:
+            if markerID != 500:
                 position = normalizeCorners(corners[i])
                 markerDict[markerID] = Marker(
                     id=markerID,
