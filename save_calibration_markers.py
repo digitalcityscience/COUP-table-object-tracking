@@ -15,45 +15,71 @@ from distortion_analysis import analyze_camera_distortion
 
 
 
-def save_calibration_markers(camera_setup, timeout: int = 30) -> Dict:
+REQUIRED_POSITIONS = ["top_left", "top_right", "bottom_right", "bottom_left"]
+
+
+def _prompt_marker_id(camera_id: str, position: str) -> str:
+    """Ask the user for the ArUco marker ID belonging to a given camera/position."""
+    label = position.replace('_', '-').upper()
+    while True:
+        marker_id = input(f"  📍 Camera {camera_id} - {label} corner marker ID: ").strip()
+        if not marker_id:
+            print("     ❌ Please enter a marker ID.")
+            continue
+        try:
+            int(marker_id)
+            return marker_id
+        except ValueError:
+            print("     ❌ Please enter a numeric marker ID.")
+
+
+def save_calibration_markers(camera_setup, timeout: int = 60) -> Dict:
     """
-    Find calibration markers in camera streams and save their positions with enhanced visual feedback.
-    
-    This function now ensures that camera position data is properly preserved in the calibration file
-    to prevent coordinate system mismatches and image flipping issues.
-    
+    Interactively find calibration markers in camera streams and save their positions.
+
+    For each camera, and for each of its 4 calibration marker positions (top_left,
+    top_right, bottom_right, bottom_left), the user is asked to enter the ArUco
+    marker ID that belongs to that position. The live camera stream is then watched
+    until that specific marker is detected before moving on to the next position.
+    This avoids having to search for every marker on every camera at once and gives
+    immediate feedback per marker.
+
+    This function also ensures that camera position data is properly preserved in the
+    calibration file to prevent coordinate system mismatches and image flipping issues.
+
     Args:
-        camera_setup: Dictionary containing camera configurations with position info and exactly 4 calibration markers per camera
+        camera_setup: Dictionary containing camera configurations with position info and exactly 4 calibration marker positions per camera
             Format: {
                 "cam_001": {
                     "position": "top_left",  #
                     "calibration_markers": {
-                        "top_left": {"id": "48", "pixel_position": None, "physical_position": [3, 3]},
-                        "top_right": {"id": "44", "pixel_position": None, "physical_position": [77, 3]},
-                        "bottom_right": {"id": "41", "pixel_position": None, "physical_position": [77, 77]},
-                        "bottom_left": {"id": "43", "pixel_position": None, "physical_position": [3, 77]}
+                        "top_left": {"physical_position": [3, 3]},
+                        "top_right": {"physical_position": [77, 3]},
+                        "bottom_right": {"physical_position": [77, 77]},
+                        "bottom_left": {"physical_position": [3, 77]}
                     },
                     "measurements": {"width": 80, "height": 80, "marker_offset": 3}
                 },
                 ...
             }
-        timeout: Maximum time (in seconds) to wait for all markers to be found
+        timeout: Maximum time (in seconds) to wait for each individual marker to be found
     
     Returns:
-        Updated camera_setup dictionary with pixel positions filled in and position data preserved
+        Updated camera_setup dictionary with marker IDs, pixel positions filled in and position data preserved
     """
     
     print("\n" + "="*80)
-    print("🎯 CALIBRATION MARKER DETECTION - ENHANCED")
+    print("🎯 CALIBRATION MARKER DETECTION - INTERACTIVE")
     print("="*80)
-    print("This process will detect ArUco markers using the coordinate system")
-    print("established during the enhanced camera setup phase.")
+    print("For each camera and marker position, you'll be asked for the marker's")
+    print("ArUco ID. The camera feed is then watched until that specific marker")
+    print("is found before moving on to the next one.")
     print("="*80)
        
     print(f"📷 Starting calibration marker detection with {len(camera_setup)} cameras")
-    print(f"⏱️  Will timeout after {timeout} seconds if not all markers are found")
+    print(f"⏱️  Will timeout after {timeout} seconds per marker if it isn't found")
     
-    # Validate that camera_setup contains position information
+    # Validate that camera_setup contains position information and marker structure
     print(f"\n🔍 VALIDATING CAMERA SETUP:")
     for cam_id, config in camera_setup.items():
         if "position" not in config or config["position"] is None:
@@ -61,143 +87,107 @@ def save_calibration_markers(camera_setup, timeout: int = 30) -> Dict:
             print("   This may cause coordinate system issues. Please re-run camera setup.")
         else:
             print(f"✅ Camera {cam_id}: position = {config['position']}")
-    
-    # Track which markers we still need to find
-    markers_to_find = {}
-    total_markers = 0
-    
-    # Initialize tracking structures and validate input
-    detected_markers = {}
-    best_frames = {}
-    
-    for camera_id, camera_config in camera_setup.items():
-        if "calibration_markers" not in camera_config:
-            raise ValueError(f"Camera {camera_id} missing calibration_markers configuration")
-        
-        markers = camera_config["calibration_markers"]
-        required_positions = ["top_left", "top_right", "bottom_right", "bottom_left"]
-        
-        for pos in required_positions:
-            if pos not in markers:
-                raise ValueError(f"Camera {camera_id} missing {pos} marker configuration")
-            if "id" not in markers[pos]:
-                raise ValueError(f"Camera {camera_id} {pos} marker missing ID")
-        
-        # Track markers we need to find for this camera
-        camera_markers = [markers[pos]["id"] for pos in required_positions]
-        markers_to_find[camera_id] = camera_markers.copy()
-        total_markers += len(camera_markers)
-        detected_markers[camera_id] = {}
-        
-        print(f"📍 Camera {camera_id} ({camera_config.get('position', 'unknown position')}):")
-        print(f"   Looking for markers: {camera_markers}")
 
-    print(f"\n🎯 Total markers to detect: {total_markers}")
-    print(f"📹 Camera windows will show detected markers in real-time")
-    print(f"⌨️  Press 'Q' to quit early (will save partial results)")
+        if "calibration_markers" not in config:
+            raise ValueError(f"Camera {cam_id} missing calibration_markers configuration")
+
+        for pos in REQUIRED_POSITIONS:
+            if pos not in config["calibration_markers"]:
+                raise ValueError(f"Camera {cam_id} missing {pos} marker configuration")
+
+    # Initialize tracking structures
+    detected_markers = {camera_id: {} for camera_id in camera_setup}
+    best_frames = {}
+
+    print(f"\n📹 Camera windows will show detected markers in real-time")
+    print(f"⌨️  Press 'Q' at any time to abort (partial results will be lost)")
     print("="*60)
 
-    start_time = time.time()
-    found_markers = 0
-    
-    print("starting calibration marker detection")
+    frame_iterator = poll_frame_data()
+
     try:
-        # Process camera frames
-        for camera_id, image_data in poll_frame_data():
-            # Skip cameras not in our config
-            if camera_id not in camera_setup:
-                print(f"Skipping unknown camera: {camera_id}")
-                continue
-            
-            # Process image
-            ir_image = sharpen_and_rotate_image(buffer_to_array(image_data))
-            
-            # Initialize tracking for this camera if needed
-            if camera_id not in detected_markers:
-                detected_markers[camera_id] = {}
-                best_frames[camera_id] = ir_image.copy()
-            
-            # Detect markers
-            corners, ids, _ = detect_markers(ir_image)
-            
-            # Create annotated image with detected markers
-            marker_image = ir_image.copy()
-            if ids is not None:
-                print(f"found markers {ids}")
-                marker_image = cv2.aruco.drawDetectedMarkers(marker_image, corners, ids)
-                
-                # Check each detected marker
-                for i, marker_id in enumerate(ids):
-                    marker_id_str = str(marker_id[0])
-                    
-                    # Check if this marker belongs to this camera and hasn't been found yet
-                    if marker_id_str in markers_to_find[camera_id]:
-                        # Find which position this marker belongs to
-                        for position, marker_info in camera_setup[camera_id]["calibration_markers"].items():
-                            if marker_info["id"] == marker_id_str:
+        for camera_id, camera_config in camera_setup.items():
+            print(f"\n" + "-"*60)
+            print(f"📍 Camera {camera_id} ({camera_config.get('position', 'unknown position')})")
+            print("-"*60)
+
+            for position in REQUIRED_POSITIONS:
+                marker_id = _prompt_marker_id(camera_id, position)
+                camera_config["calibration_markers"][position]["id"] = marker_id
+
+                print(f"🔎 Searching for marker {marker_id} on camera {camera_id} ({position})...")
+                start_time = time.time()
+                found = False
+
+                while not found:
+                    frame_camera_id, image_data = next(frame_iterator)
+
+                    # Only process frames for the camera we're currently working on
+                    if frame_camera_id != camera_id:
+                        continue
+
+                    # Process image
+                    ir_image = sharpen_and_rotate_image(buffer_to_array(image_data))
+                    best_frames[camera_id] = ir_image.copy()
+
+                    # Detect markers
+                    corners, ids, _ = detect_markers(ir_image)
+
+                    # Create annotated image with detected markers
+                    marker_image = ir_image.copy()
+                    if ids is not None:
+                        marker_image = cv2.aruco.drawDetectedMarkers(marker_image, corners, ids)
+
+                        for i, detected_id in enumerate(ids):
+                            if str(int(detected_id)) == marker_id:
                                 # Extract marker position (center of the marker)
                                 marker_corners = corners[i][0]
-                                center_x = np.mean(marker_corners[:, 0])
-                                center_y = np.mean(marker_corners[:, 1])
-                                
-                                # Update the pixel position if not already found
-                                if "pixel_position" not in marker_info.keys():
-                                    camera_setup[camera_id]["calibration_markers"][position]["pixel_position"] = [float(center_x), float(center_y)]
-                                    
-                                    # Store marker info for final visualization - only center position
-                                    detected_markers[camera_id][position] = {
-                                        "id": marker_id_str,
-                                        "position": [float(center_x), float(center_y)]
-                                    }
-                                    
-                                    # Remove from markers to find
-                                    markers_to_find[camera_id].remove(marker_id_str)
-                                    found_markers += 1
-                                    
-                                    # Update best frame if this is the first time we've seen this marker
-                                    best_frames[camera_id] = ir_image.copy()
-                                    
-                                    print(f"✅ Found marker {marker_id} for camera {camera_id} at position {position}: ({center_x:.1f}, {center_y:.1f})")
-            
-            # Show the camera view with detected markers
-            cv2.imshow(f"Camera {camera_id}", marker_image)
-            
-            # Display progress
-            elapsed = time.time() - start_time
-            print(f"Progress: {found_markers}/{total_markers} markers found ({elapsed:.1f}s elapsed)")
-            
-            # Print missing markers
-            for cam_id, markers in markers_to_find.items():
-                print(f"Missing markers {markers} for cam {cam_id}")
-                                 
-            # Check if we've found all markers
-            remaining_markers = sum(len(markers) for markers in markers_to_find.values())
+                                center_x = float(np.mean(marker_corners[:, 0]))
+                                center_y = float(np.mean(marker_corners[:, 1]))
 
-            if remaining_markers == 0:
-                print("All calibration markers found!")
-                break
-            
-            # Check if we've timed out
-            if elapsed > timeout:
-                print(f"Timeout after {elapsed:.1f}s. Found {found_markers}/{total_markers} markers.")
-                break
-            
-            # Break on 'q' key
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                print("Manually stopped marker detection")
-                break
-    
+                                camera_config["calibration_markers"][position]["pixel_position"] = [center_x, center_y]
+                                detected_markers[camera_id][position] = {
+                                    "id": marker_id,
+                                    "position": [center_x, center_y]
+                                }
+
+                                found = True
+                                print(f"✅ Found marker {marker_id} for camera {camera_id} at position {position}: ({center_x:.1f}, {center_y:.1f})")
+                                break
+
+                    # Show the camera view with detected markers
+                    cv2.imshow(f"Camera {camera_id}", marker_image)
+
+                    elapsed = time.time() - start_time
+                    if not found and elapsed > timeout:
+                        print(f"⏱️  Timeout after {elapsed:.1f}s while looking for marker {marker_id}.")
+                        retry = input("     Enter 'r' to re-enter the marker ID, or press Enter to keep waiting: ").strip().lower()
+                        if retry == 'r':
+                            marker_id = _prompt_marker_id(camera_id, position)
+                            camera_config["calibration_markers"][position]["id"] = marker_id
+                            print(f"🔎 Searching for marker {marker_id} on camera {camera_id} ({position})...")
+                        start_time = time.time()
+
+                    # Abort on 'q' key
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        print("Manually stopped marker detection")
+                        raise KeyboardInterrupt
+
     except KeyboardInterrupt:
         print("Marker detection interrupted")
     finally:
         cv2.destroyAllWindows()
-    
+
     # Report final status
+    total_markers = len(camera_setup) * len(REQUIRED_POSITIONS)
+    found_markers = sum(len(positions) for positions in detected_markers.values())
+
     if found_markers < total_markers:
         missing_markers = {}
-        for camera_id, markers in markers_to_find.items():
-            if markers:
-                missing_markers[camera_id] = markers
+        for camera_id in camera_setup:
+            missing = [pos for pos in REQUIRED_POSITIONS if pos not in detected_markers.get(camera_id, {})]
+            if missing:
+                missing_markers[camera_id] = missing
         
         print(f"Warning: Not all markers were found. Missing: {missing_markers}")
         exit()

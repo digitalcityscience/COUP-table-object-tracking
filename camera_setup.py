@@ -64,49 +64,6 @@ def choose_camera_position(cam_id):
             print("Please enter a valid number.")
 
 
-def prompt_calibration_marker_ids_with_validation(cam_id):
-    """
-    Enhanced marker ID input with visual validation and clear instructions
-    """
-    print(f"\n" + "="*70)
-    print(f"🎯 CALIBRATION MARKERS FOR CAMERA {cam_id}")
-    print("="*70)
-    
-    # Show the camera again so user can see the markers
-    print("Showing camera view again so you can identify marker IDs...")
-    show_single_camera_with_guide(cam_id)
-    
-    print("\n📋 MARKER ID SETUP:")
-    print("Look at the camera window you just saw and identify the ArUco marker IDs")
-    print("in each corner position AS YOU SEE THEM in the camera image.")
-    print()
-    print("The system will map these to physical coordinates automatically.")
-    print("Just tell us which marker ID is in each corner of the camera view:")
-    print()
-    
-    markers = {}
-    positions = ["top_left", "top_right", "bottom_right", "bottom_left"]
-    
-    for pos in positions:
-        while True:
-            marker_id = input(f"  📍 {pos.replace('_', '-').upper()} corner marker ID: ").strip()
-            if not marker_id:
-                print("     ❌ Please enter a marker ID.")
-                continue
-            
-            # Validate that it's a number
-            try:
-                int(marker_id)
-                markers[pos] = {"id": marker_id}
-                print(f"     ✅ {pos.replace('_', '-').upper()}: ID {marker_id}")
-                break
-            except ValueError:
-                print("     ❌ Please enter a numeric marker ID.")
-    
-    print(f"\n✅ All markers configured for camera {cam_id}!")
-    return markers
-
-
 def prompt_calibration_marker_ids():
     """
     Legacy function - kept for backwards compatibility
@@ -123,10 +80,14 @@ def prompt_calibration_marker_ids():
 
 
 
-def add_physical_position_of_calibration_marker(markers, table_width, table_height, marker_offset):
+def build_physical_positions_of_calibration_markers(table_width, table_height, marker_offset):
     """
-    Maps marker IDs to their physical positions on the table
-    
+    Builds the physical positions of each calibration marker corner on the table.
+
+    Marker IDs are not collected here - they are prompted for later in
+    save_calibration_markers.py, right before the system searches for them on
+    each camera's live stream, so the user isn't asked for the same IDs twice.
+
     Physical coordinate system:
     - Origin (0,0) is at the physical top-left corner of the table
     - X increases going right
@@ -135,19 +96,15 @@ def add_physical_position_of_calibration_marker(markers, table_width, table_heig
     """
     return {
                 "top_left": {
-                    "id": markers["top_left"]["id"],
                     "physical_position": [marker_offset, marker_offset]
                 },
                 "top_right": {
-                    "id": markers["top_right"]["id"],
                     "physical_position": [table_width - marker_offset, marker_offset]
                 },
                 "bottom_right": {
-                    "id": markers["bottom_right"]["id"],
                     "physical_position": [table_width - marker_offset, table_height - marker_offset]
                 },
                 "bottom_left": {
-                    "id": markers["bottom_left"]["id"],
                     "physical_position": [marker_offset, table_height - marker_offset]
                 }
             }
@@ -206,23 +163,15 @@ def prompt_camera_setup():
 
     # Configure calibration markers for each camera
     print(f"\n🎯 CALIBRATION MARKER SETUP:")
-    print("Now we'll identify the ArUco markers for each camera...")
+    print("Calculating calibration marker physical positions for each camera...")
+    print("(Marker IDs will be requested during marker detection.)")
     
     for cam_id in camera_ids:
-        print(f"\n" + "-"*50)
-        print(f"Configuring markers for Camera {cam_id} ({camera_ids.index(cam_id)+1} of {len(camera_ids)})")
-        print("-"*50)
-        
-        # Enhanced marker ID input with validation
-        calibration_markers = prompt_calibration_marker_ids_with_validation(cam_id)
-        calibration_markers = add_physical_position_of_calibration_marker(
-            calibration_markers,
+        camera_setup[cam_id]["calibration_markers"] = build_physical_positions_of_calibration_markers(
             table_width=table_width,
             table_height=table_height,
             marker_offset=marker_offset
         )
-
-        camera_setup[cam_id]["calibration_markers"] = calibration_markers
 
     print(f"\n🎉 CAMERA SETUP COMPLETE!")
     print("="*80)
