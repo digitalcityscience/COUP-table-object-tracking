@@ -92,13 +92,16 @@ class Markers:
         return False
 
     def toJSON(self) -> str:
+        return json.dumps(self.toDict())
+
+    def toDict(self) -> Dict[int, List[float]]:
         if self.foundCalibrationMarkers():
             print("sending only calibration markers")
             print("markers found:",  self.reduceToCalibrationMarkers().keys())
 
-            return json.dumps(printJSON(self.reduceToCalibrationMarkers()))
+            return printJSON(self.reduceToCalibrationMarkers())
 
-        return json.dumps(printJSON(self.pruneUncertainties()))
+        return printJSON(self.pruneUncertainties())
             
         
 
