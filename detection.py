@@ -20,11 +20,17 @@ parameters.adaptiveThreshWinSizeMax = 23  # uncommented
 parameters.adaptiveThreshWinSizeStep = 10  # uncommented
 parameters.adaptiveThreshConstant = 7  # uncommented
 
+# OpenCV 5+ exposes marker detection via ArucoDetector, while older
+# versions expose the module function aruco.detectMarkers.
+detector = aruco.ArucoDetector(aruco_dict, parameters) if hasattr(aruco, "ArucoDetector") else None
+
 Corner = numpy.ndarray
 DetectionResult = Tuple[List[Corner], List[int], List]
 
 def detect_markers(ir_image: List) -> DetectionResult:
     # corners, ids, rejectedImgPoints
+    if detector is not None:
+        return detector.detectMarkers(ir_image)
     return aruco.detectMarkers(ir_image, aruco_dict, parameters=parameters)
 
 
