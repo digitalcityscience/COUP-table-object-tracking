@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+from pyproj import Transformer
 
 """
 TODO server py to listen to frontend for messages
@@ -10,12 +11,27 @@ TODO server py to listen to frontend for messages
 -> store in redis or database
 """
 
+# EPSG:25832 = ETRS89 / UTM zone 32N, which covers Hamburg/Germany.
+_WGS84_TO_UTM = Transformer.from_crs("EPSG:4326", "EPSG:25832", always_xy=True)
+
 
 @dataclass
 class BasemapCalibrationPoint:
     pixel_position: tuple[float, float]
-    utm_position: tuple[float, float]
+    lat_lon_position: tuple[float, float]
+    utm_position: tuple[float, float] = None
 
+    def __init__(self, pixel_position: tuple[float, float], lat_lon_position: tuple[float, float]):
+        self.pixel_position = pixel_position
+        self.lat_lon_position = lat_lon_position
+        self.utm_position = self.latlon_to_utm(lat_lon_position)
+
+    def latlon_to_utm(self, lat_lon_position: tuple[float, float]) -> tuple[float, float]:
+        """Convert a (lat, lon) position to UTM coordinates (EPSG:25832)."""
+        lat, lon = lat_lon_position
+        easting, northing = _WGS84_TO_UTM.transform(lon, lat)
+        return easting, northing
+    
 
 @dataclass
 class BasemapHomography:

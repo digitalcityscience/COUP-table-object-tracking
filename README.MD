@@ -57,10 +57,13 @@ pip install -r requirements.txt
 
 ### 2) Run the server
 ```
-python server.py
+python server.py --client unity   # raw TCP socket on localhost:8052, marker JSON
+python server.py --client web     # websocket on 0.0.0.0:8053, geojson/dict
 ```
 - **NEW**: Enhanced calibration with visual orientation guides runs automatically
-- Performs/loads calibration, initializes stitching, and starts streaming on `localhost:8052`.
+- Performs/loads calibration, initializes stitching, and starts streaming to the selected client.
+- With `--client unity`, marker JSON is always sent over a raw TCP socket, regardless of basemap calibration.
+- With `--client web`, tracking results are sent over a websocket as GeoJSON once the web client sends `map_calibration` points, otherwise as a plain marker dict.
 - A debug monitor shows stitched output and detected markers.
 
 ### 3) Enhanced Calibration Process

@@ -36,7 +36,7 @@ def markers_json_to_geojson(markers_json: Mapping[int, Sequence[float]], basemap
             "properties": {"marker_id": marker_id, "rotation": rotation},
             "geometry": {"type": "Point", "coordinates": [lon_i, lat_i]},
         }
-        for marker_id, rotation, lon_i, lat_i in zip(marker_ids, rotations, lon, lat)
+        for marker_id, rotation, lon_i, lat_i in zip(marker_ids, rotations, lon, lat) # if marker_id in [0, 1, 2, 3]
     ]
 
     return {"type": "FeatureCollection", "features": features}
