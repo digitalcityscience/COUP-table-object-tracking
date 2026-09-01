@@ -54,10 +54,7 @@ def test_map_calibration_snapshot_keeps_frontend_marker_ids():
     markers_holder.addMarkers(
         [
             Marker(200, (10, 20, 0.0), time.time(), "000"),
-            Marker(200, (10, 20, 0.0), time.time(), "000"),
             Marker(201, (30, 40, 0.0), time.time(), "000"),
-            Marker(201, (30, 40, 0.0), time.time(), "000"),
-            Marker(100, (50, 60, 0.0), time.time(), "000"),
             Marker(100, (50, 60, 0.0), time.time(), "000"),
         ]
     )
@@ -66,3 +63,19 @@ def test_map_calibration_snapshot_keeps_frontend_marker_ids():
         200: [10, 20, 0.0, "000"],
         201: [30, 40, 0.0, "000"],
     }
+
+
+def test_calibration_markers_survive_a_single_sighting():
+    """One stitched frame is enough for a calibration marker to reach the frontend.
+
+    `server._detection_worker` clears the holder every 200 ms, so a confidence gate here
+    would mean "seen twice within one 200 ms window" -- unreachable below ~10 fps, which is
+    routine when two camera streams are being stitched. The frontend runs its own stability
+    check across snapshots before accepting a reading, so gating again here only ever
+    silences calibration entirely.
+    """
+    markers_holder = Markers()
+    markers_holder.clear()
+    markers_holder.addMarker(Marker(202, (70, 80, 0.0), time.time(), "000"))
+
+    assert markers_holder.toDict() == {202: [70, 80, 0.0, "000"]}

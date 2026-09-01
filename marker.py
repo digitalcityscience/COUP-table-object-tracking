@@ -71,8 +71,13 @@ class Markers:
 
         for marker in self.mDict.values():
             if marker.id in calibrationMarkerIds:
-                if self.checkConfidence(marker):
-                    result[marker.id] = marker
+                # No confidence gate here, unlike pruneUncertainties: the holder is cleared
+                # every 200 ms (server._detection_worker), so requiring confidence >= 1 means
+                # requiring two stitched frames inside one 200 ms window. Below ~10 fps -- routine
+                # when stitching two cameras -- that never happens and the calibration markers are
+                # never forwarded at all. The frontend does its own stability check across
+                # snapshots before it accepts a reading, so the gate belongs there, not here.
+                result[marker.id] = marker
 
         return result
 
