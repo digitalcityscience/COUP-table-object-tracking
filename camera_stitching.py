@@ -162,17 +162,14 @@ def create_final_stitched_image(current_frames: Dict, layout: Dict, unified_widt
     
     if has_top_cameras and not has_bottom_cameras:
         # Only top row has cameras - return just the horizontal join (1x2 layout)
-        print("Detected 1x2 layout (horizontal only)")
         return join_images_horizontally(top_left_img, top_right_img, unified_width, unified_height)
     
     elif has_bottom_cameras and not has_top_cameras:
         # Only bottom row has cameras - return just the horizontal join (1x2 layout)
-        print("Detected 1x2 layout (horizontal only, bottom row)")
         return join_images_horizontally(bottom_left_img, bottom_right_img, unified_width, unified_height)
     
     elif has_top_cameras and has_bottom_cameras:
         # We have cameras in both rows - create full 2x2 grid
-        print("Detected 2x2 layout (full grid)")
         top_row = join_images_horizontally(top_left_img, top_right_img, unified_width, unified_height)
         bottom_row = join_images_horizontally(bottom_left_img, bottom_right_img, unified_width, unified_height)
         return join_images_vertically(top_row, bottom_row)
@@ -237,7 +234,7 @@ def setup_camera_transforms(calibration_data):
         "unified_height": unified_height
     }
 
-def process_and_join_streams(setup_config: dict):
+def process_and_join_streams(setup_config: dict, log_progress: bool = True):
     """
     Process camera streams and yield joined output using pre-calculated setup
     
@@ -253,8 +250,9 @@ def process_and_join_streams(setup_config: dict):
     unified_width = setup_config["unified_width"]
     unified_height = setup_config["unified_height"]
     
-    print("Starting real-time processing...")
-    print(f"Expected cameras: {[cam_id for cam_id in layout.values() if cam_id]}")
+    if log_progress:
+        print("Starting real-time processing...")
+        print(f"Expected cameras: {[cam_id for cam_id in layout.values() if cam_id]}")
     
     # Store frames for joining
     frame_buffer = {}
@@ -293,7 +291,7 @@ def process_and_join_streams(setup_config: dict):
             if final_stitched is not None:
                 frame_count += 1
                 
-                if frame_count % 30 == 0:  # Print status every 30 frames
+                if log_progress and frame_count % 30 == 0:  # Print status every 30 frames
                     active_cameras = len(frame_buffer)
                     total_expected = len([cam for cam in layout.values() if cam])
                     print(f"Frame {frame_count}: Processing {active_cameras}/{total_expected} cameras at ~30 FPS")

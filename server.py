@@ -2,11 +2,14 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import queue as queue_module
 import socket as socket_module
 import signal
 import sys
 import threading
+from datetime import datetime
+from pathlib import Path
 
 from marker import Markers, map_detected_markers
 from time import time_ns
@@ -16,8 +19,13 @@ from calibration_handler  import load_calibration_markers, run_initial_calibrati
 from camera_stitching import setup_camera_transforms, process_and_join_streams
 from pixel_to_utm import BasemapCalibrationPoint, BasemapHomography, create_basemap_homography
 from table_to_geojson import markers_json_to_geojson
+from physical_building_catalog import building_feature, load_catalog, marker_index
 import websockets
 
+# Windows consoles default to a non-UTF-8 codepage (e.g. cp1252), which
+# crashes on the emoji used throughout this codebase's print() calls.
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
 
 # Global variable for stitching setup
 stitching_setup = None
@@ -41,6 +49,49 @@ WEB_WS_PORT = 8053
 # whichever client (unity/web) is sending tracking updates. Bounded to 1 so
 # stale snapshots get replaced instead of piling up if a consumer falls behind.
 tracking_queue: "queue_module.Queue[dict]" = queue_module.Queue(maxsize=1)
+
+# Dedicated calibration log: every accepted/rejected map_calibration message gets its own
+# timestamped line here, separate from the console (which is too noisy from the detection
+# loop to spot a calibration change in). One file per server run under logs/calibration/.
+# Anchored to this script's own directory (not the process's cwd) so the folder always
+# lands next to server.py regardless of where the server is launched from.
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PHYSICAL_BUILDING_CATALOG_PATH = os.path.join(_SCRIPT_DIR, "physical-building-catalog.json")
+physical_building_catalog = load_catalog(Path(PHYSICAL_BUILDING_CATALOG_PATH))
+physical_buildings_by_marker = marker_index(physical_building_catalog)
+_warned_unknown_marker_ids: set[int] = set()
+CALIBRATION_LOG_DIR = os.path.join(_SCRIPT_DIR, "logs", "calibration")
+os.makedirs(CALIBRATION_LOG_DIR, exist_ok=True)
+_calibration_log_path = os.path.join(
+    CALIBRATION_LOG_DIR, f"calibration_{datetime.now():%Y%m%d_%H%M%S}.log"
+)
+calibration_logger = logging.getLogger("calibration")
+calibration_logger.setLevel(logging.INFO)
+calibration_logger.propagate = False  # never bleed into the root/console logging
+if not calibration_logger.handlers:
+    _calibration_handler = logging.FileHandler(_calibration_log_path, encoding="utf-8")
+    _calibration_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    calibration_logger.addHandler(_calibration_handler)
+
+
+def markers_to_building_geojson(snapshot: dict, homography: BasemapHomography) -> dict:
+    """Resolve calibrated marker centres and emit catalog-owned building geometries."""
+    marker_centres = markers_json_to_geojson(snapshot, homography)
+    features = []
+    for marker_feature in marker_centres["features"]:
+        properties = marker_feature["properties"]
+        marker_id = int(properties["marker_id"])
+        building = physical_buildings_by_marker.get(marker_id)
+        if building is None:
+            if marker_id not in _warned_unknown_marker_ids:
+                logging.getLogger(__name__).warning(
+                    "Skipping marker %s because it is not in physical-building-catalog.json", marker_id
+                )
+                _warned_unknown_marker_ids.add(marker_id)
+            continue
+        center = tuple(marker_feature["geometry"]["coordinates"])
+        features.append(building_feature(building, marker_id, center, float(properties["rotation"])))
+    return {"type": "FeatureCollection", "features": features}
 
 
 def _parse_calibration_points(raw_points: list) -> list[BasemapCalibrationPoint]:
@@ -110,11 +161,13 @@ async def handle_web_client(websocket):
 
     Expected incoming message schema:
         {"type": "map_calibration", "points": [{"pixel_position": [x, y], "utm_position": [x, y]}, ...]}
+        {"type": "clear_calibration"}  # drops the current homography; resumes raw marker output
         {"type": "building_calibration", ...}  # not implemented yet
 
     Outgoing tracking messages are sent as GeoJSON once a basemap homography
     is available (i.e. after a map_calibration message has been received),
-    otherwise as a plain dict of markers.
+    otherwise as a plain dict of markers. A "clear_calibration" message reverts
+    to the plain-dict output until the next "map_calibration" is received.
     """
     peer = websocket.remote_address
     print(f"Web client connected: {peer}")
@@ -135,8 +188,35 @@ async def handle_web_client(websocket):
                     calibration_points = _parse_calibration_points(payload["points"])
                     basemap_homography = create_basemap_homography(calibration_points)
                     print(f"Updated basemap homography from {len(calibration_points)} calibration points")
+                    calibration_logger.info(
+                        "CALIBRATION UPDATED from %s | points=%s | homography_matrix=%s | utm_offset=%s",
+                        peer,
+                        json.dumps(
+                            [
+                                {
+                                    "pixel_position": p.pixel_position,
+                                    "lat_lon_position": p.lat_lon_position,
+                                    "utm_position": p.utm_position,
+                                }
+                                for p in calibration_points
+                            ]
+                        ),
+                        basemap_homography.matrix.tolist(),
+                        basemap_homography.utm_offset,
+                    )
                 except (KeyError, ValueError) as exc:
                     print(f"Invalid map_calibration payload: {exc}")
+                    calibration_logger.info(
+                        "CALIBRATION REJECTED from %s | error=%s | raw_payload=%s",
+                        peer,
+                        exc,
+                        payload,
+                    )
+
+            elif message_type == "clear_calibration":
+                basemap_homography = None
+                print("Cleared basemap homography; resuming raw marker output")
+                calibration_logger.info("CALIBRATION CLEARED from %s", peer)
 
             elif message_type == "building_calibration":
                 print("building_calibration not implemented yet")
@@ -152,7 +232,7 @@ async def handle_web_client(websocket):
             # marker positions to GeoJSON; until then, send a plain dict
             # of markers.
             if basemap_homography is not None:
-                markers_json = json.dumps(markers_json_to_geojson(snapshot, basemap_homography))
+                markers_json = json.dumps(markers_to_building_geojson(snapshot, basemap_homography))
             else:
                 markers_json = json.dumps(snapshot)
 
@@ -211,6 +291,10 @@ async def send_tracking_matches_unity(connection):
 
 
 async def main(client: str):
+    print(
+        f"Loaded {len(physical_building_catalog['buildings'])} physical buildings "
+        f"from {PHYSICAL_BUILDING_CATALOG_PATH}"
+    )
     # Runs the initial table calibration setup if no calibration file is found
     run_initial_calibration_if_needed()
     # Initialize camera stitching system at startup
