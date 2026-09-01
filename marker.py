@@ -7,7 +7,7 @@ from detection import Corner, normalizeCorners
 
 Position = Tuple[int, int, float]
 CameraId = Union[int, str]
-calibrationMarkerIds = [100,101,102,103]
+calibrationMarkerIds = [200, 201, 202, 203]
 
 @dataclass
 class Marker:
