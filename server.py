@@ -15,7 +15,8 @@ from marker import Markers, map_detected_markers
 from time import time_ns
 from detection import detect_markers
 from hud import draw_monitor_window, draw_status_window
-from calibration_handler  import load_calibration_markers, run_initial_calibration_if_needed
+from automatic_calibration import calibrate_fixed_rig
+from calibration_handler import load_calibration_markers
 from camera_stitching import setup_camera_transforms, process_and_join_streams
 from pixel_to_utm import BasemapCalibrationPoint, BasemapHomography, create_basemap_homography
 from table_to_geojson import markers_json_to_geojson
@@ -290,7 +291,7 @@ async def send_tracking_matches_unity(connection):
     await stream_tracking_updates(send)
 
 
-async def main(client: str):
+async def main(client: str, calibrate: bool = False):
     # Legacy calibration/camera helpers still use relative paths. Always resolve
     # them from the project directory so terminal and IDE launches behave alike.
     os.chdir(_SCRIPT_DIR)
@@ -298,11 +299,17 @@ async def main(client: str):
         f"Loaded {len(physical_building_catalog['buildings'])} physical buildings "
         f"from {PHYSICAL_BUILDING_CATALOG_PATH}"
     )
-    # Runs the initial table calibration setup if no calibration file is found
-    run_initial_calibration_if_needed()
-    # Initialize camera stitching system at startup
+    calibration_path = Path(_SCRIPT_DIR) / "calibration_markers.json"
+    if calibrate:
+        print("Calibration mode requested; rebuilding camera calibration...")
+        calibration_data = calibrate_fixed_rig(calibration_path)
+    else:
+        print(f"Loading existing camera calibration from {calibration_path}")
+        calibration_data = load_calibration_markers(str(calibration_path))
+
+    # Initialize camera stitching from the selected calibration data.
     global stitching_setup
-    stitching_setup = setup_camera_transforms(load_calibration_markers("calibration_markers.json"))
+    stitching_setup = setup_camera_transforms(calibration_data)
 
     # Detection/stitching runs on its own thread so it never blocks the
     # asyncio event loop (which handles client I/O).
@@ -337,6 +344,11 @@ def parse_args():
         required=False,
         help="Which client to serve: 'unity' (raw TCP socket, marker JSON) or 'web' (websocket, geojson/dict)",
     )
+    parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="Run the fixed-rig camera calibration before starting tracking",
+    )
     return parser.parse_args()
 
 
@@ -349,7 +361,7 @@ signal.signal(signal.SIGINT, shutdown_handler)  # Ctrl+C
 signal.signal(signal.SIGTERM, shutdown_handler)  # Termination signal
 
 try:
-    loop.run_until_complete(main(args.client))
+    loop.run_until_complete(main(args.client, calibrate=args.calibrate))
 except KeyboardInterrupt:
     shutdown_handler(None, None)
 finally:

@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet("web", "unity")]
-    [string]$Client = "web"
+    [string]$Client = "web",
+    [switch]$Calibrate
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +14,11 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 
 Push-Location $ProjectDir
 try {
-    uv run --python 3.13 --with-requirements requirements.txt -- python server.py --client $Client
+    $ServerArgs = @("server.py", "--client", $Client)
+    if ($Calibrate) {
+        $ServerArgs += "--calibrate"
+    }
+    uv run --python 3.13 --with-requirements requirements.txt -- python @ServerArgs
 }
 finally {
     Pop-Location

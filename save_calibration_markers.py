@@ -266,10 +266,12 @@ def save_calibration_markers(camera_setup, timeout: int = 60) -> Dict:
     return camera_setup
 
 
-def export_pictures_for_debugging(detected_markers, best_frames):
+def export_pictures_for_debugging(
+    detected_markers, best_frames, output_dir="calibration_visualizations"
+):
     # Save calibration points to a separate file for visualization
-    os.makedirs("calibration_visualizations", exist_ok=True)
-    with open("calibration_visualizations/calibration_points.json", "w") as f:
+    os.makedirs(output_dir, exist_ok=True)
+    with open(os.path.join(output_dir, "calibration_points.json"), "w") as f:
         json.dump(detected_markers, f, indent=2)
     
     # Create and save final annotated images with ALL detected calibration markers
@@ -308,6 +310,6 @@ def export_pictures_for_debugging(detected_markers, best_frames):
     
     # Save the final annotated images
     for camera_id, image in final_annotated_images.items():
-        output_path = f"calibration_visualizations/camera_{camera_id}_markers.png"
+        output_path = os.path.join(output_dir, f"camera_{camera_id}_markers.png")
         cv2.imwrite(output_path, image)
         print(f"Saved annotated marker visualization for camera {camera_id} to {output_path}")
