@@ -291,6 +291,9 @@ async def send_tracking_matches_unity(connection):
 
 
 async def main(client: str):
+    # Legacy calibration/camera helpers still use relative paths. Always resolve
+    # them from the project directory so terminal and IDE launches behave alike.
+    os.chdir(_SCRIPT_DIR)
     print(
         f"Loaded {len(physical_building_catalog['buildings'])} physical buildings "
         f"from {PHYSICAL_BUILDING_CATALOG_PATH}"
