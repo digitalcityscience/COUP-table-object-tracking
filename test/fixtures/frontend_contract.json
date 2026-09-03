@@ -4,13 +4,14 @@
     "200": "top_left",
     "201": "top_right",
     "202": "bottom_left",
-    "203": "bottom_right"
+    "203": "bottom_right",
+    "_note": "The four ids whose meaning is a physical contract shared with the Vanilla reference app. TOSCA-2 also projects 204-208 -- the edge midpoints and centre of a 3x3 grid over the same area (workflow step 5) -- which this server admits as calibration markers (calibration_contract.EXTRA_MAP_CALIBRATION_MARKER_IDS) but never names, because their placement is the frontend's business. Only the four corners are required to calibrate; every extra marker that was decoded adds a correspondence, and one that was not simply does not appear."
   },
   "frontend_to_backend": {
     "map_calibration": {
       "_produced_by": "collabTracking.ts::buildMapCalibrationFromMarkerReadings",
       "_consumed_by": "server.py::handle_web_client.receive_messages -> _parse_calibration_points",
-      "_note": "points are ordered by MAP_CALIBRATION_MARKERS, i.e. 200, 201, 202, 203. lat_lon_position is [lat, lng]. Pixel positions below are the operator-confirmed 2026-08-31 readings.",
+      "_note": "points are ordered by MAP_CALIBRATION_MARKERS, i.e. 200, 201, 202, 203, then any of 204-208 that were decoded. lat_lon_position is [lat, lng]. Pixel positions below are the operator-confirmed 2026-08-31 readings, which predate the grid and so carry only the four corners -- a four-point payload stays valid, it just gives create_basemap_homography no freedom to average detection noise (see test/test_homography_spread.py).",
       "type": "map_calibration",
       "version": 2,
       "points": [

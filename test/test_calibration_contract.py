@@ -7,6 +7,7 @@ import pytest
 
 from calibration_contract import (
     CORNER_ORDER,
+    EXTRA_MAP_CALIBRATION_MARKER_IDS,
     MAP_CALIBRATION_MARKER_CORNERS,
     MAP_CALIBRATION_MARKER_IDS,
     assert_not_mirrored,
@@ -22,8 +23,23 @@ FIXTURE = json.loads(
 )
 
 
-def test_calibration_marker_ids_are_exactly_200_to_203():
-    assert sorted(MAP_CALIBRATION_MARKER_IDS) == [200, 201, 202, 203]
+def test_calibration_marker_ids_are_the_corners_plus_the_grid():
+    """200-203 are the corners; 204-208 are TOSCA-2's extra grid points (workflow step 5).
+
+    All nine must be here, not just the corners: `marker.py::reduceToCalibrationMarkers` waves
+    exactly these ids past the confidence gate, so an id missing from this set is held back and
+    never reaches the frontend to be read -- the marker would simply never appear, with nothing
+    anywhere saying why.
+    """
+    assert sorted(MAP_CALIBRATION_MARKER_IDS) == [200, 201, 202, 203, 204, 205, 206, 207, 208]
+    assert sorted(MAP_CALIBRATION_MARKER_CORNERS) == [200, 201, 202, 203]
+    assert sorted(EXTRA_MAP_CALIBRATION_MARKER_IDS) == [204, 205, 206, 207, 208]
+
+
+def test_only_the_corner_markers_claim_a_corner():
+    for marker_id in EXTRA_MAP_CALIBRATION_MARKER_IDS:
+        with pytest.raises(KeyError):
+            corner_for_map_calibration_marker(marker_id)
 
 
 def test_corner_mapping_matches_the_frontend_contract_fixture():
@@ -31,6 +47,7 @@ def test_corner_mapping_matches_the_frontend_contract_fixture():
     expected = {
         int(marker_id): corner
         for marker_id, corner in FIXTURE["map_calibration_marker_corners"].items()
+        if not marker_id.startswith("_")  # `_note` is prose for a human, not a mapping
     }
     assert MAP_CALIBRATION_MARKER_CORNERS == expected
     assert expected == {

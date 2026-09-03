@@ -1,14 +1,15 @@
 """The one place the map-calibration marker contract with the TOSCA-2 frontend lives.
 
-TOSCA-2 projects four ArUco markers at the table's corners and reads them straight back
-out of this server's raw marker snapshot to build its `map_calibration` handshake. The id
--> corner assignment below is that contract; it is mirrored verbatim on the frontend in
-`src/collab/stores/collabTracking.ts::MAP_CALIBRATION_MARKERS` and in the vanilla
-reference app's `js/state.js::MARKER_ID_TO_KEY`. Nothing else in this repo may declare
-these ids.
+TOSCA-2 projects ArUco markers into the AOI and reads them straight back out of this
+server's raw marker snapshot to build its `map_calibration` handshake. Two groups: the
+four corner ids (200-203), whose id -> corner assignment is a physical contract mirrored
+verbatim on the frontend in `src/collab/stores/collabTracking.ts::MAP_CALIBRATION_MARKERS`
+and in the vanilla reference app's `js/state.js::MARKER_ID_TO_KEY`; and the five extra grid
+ids (204-208), which this server admits but does not name. Nothing else in this repo may
+declare these ids.
 
 The `4x4_1000-{id}.svg` filenames the frontend serves are not a dictionary mismatch:
-OpenCV's 4x4 dictionaries are nested, so ids 200-203 are bit-identical under the
+OpenCV's 4x4 dictionaries are nested, so ids 200-208 are bit-identical under the
 `DICT_4X4_250` that `detection.py` loads.
 """
 
@@ -44,18 +45,42 @@ MAP_CALIBRATION_MARKER_CORNERS: Final[Dict[int, Corner]] = {
     203: "bottom_right",
 }
 
-#: The four ids above, as a set, for membership tests on a detected-marker snapshot.
-MAP_CALIBRATION_MARKER_IDS: Final[frozenset] = frozenset(MAP_CALIBRATION_MARKER_CORNERS)
+#: The five extra map-calibration marker ids TOSCA-2 projects alongside the four corners: the
+#: edge midpoints and the centre of a 3x3 grid over the projectable area (workflow step 5,
+#: `collabTracking.ts::MAP_CALIBRATION_MARKERS`).
+#:
+#: They exist because a four-point homography has no freedom left: `cv2.findHomography` passes
+#: through all four exactly and dumps every bit of detection noise into the map everywhere else.
+#: With more correspondences `create_basemap_homography` solves least-squares instead, so the
+#: noise averages out and there is a residual to look at. Nothing in the homography code changes
+#: to accept them -- it has taken `>= 4` points from the start.
+#:
+#: They are declared here for one reason: `marker.py::reduceToCalibrationMarkers` waves calibration
+#: markers past the confidence gate, and an id missing from this contract would be held back by it
+#: and never reach the frontend to be read. Their id -> place mapping is TOSCA-2's business, not
+#: this server's, so only the ids appear here.
+EXTRA_MAP_CALIBRATION_MARKER_IDS: Final[Tuple[int, ...]] = (204, 205, 206, 207, 208)
+
+#: Every map-calibration id -- the four corners plus the grid -- as a set, for membership tests on
+#: a detected-marker snapshot.
+MAP_CALIBRATION_MARKER_IDS: Final[frozenset] = frozenset(
+    set(MAP_CALIBRATION_MARKER_CORNERS) | set(EXTRA_MAP_CALIBRATION_MARKER_IDS)
+)
 
 
 def corner_for_map_calibration_marker(marker_id: int) -> Corner:
-    """The table corner `marker_id` occupies, or raise if it is not a calibration marker."""
+    """The table corner `marker_id` occupies, or raise if it does not occupy one.
+
+    Only the four corner ids have a corner. The grid ids in
+    `EXTRA_MAP_CALIBRATION_MARKER_IDS` are calibration markers too, but they sit at edge midpoints
+    and the centre, which this server has no need to name.
+    """
     try:
         return MAP_CALIBRATION_MARKER_CORNERS[int(marker_id)]
     except KeyError:
         raise KeyError(
-            f"{marker_id} is not a map-calibration marker; expected one of "
-            f"{sorted(MAP_CALIBRATION_MARKER_IDS)}"
+            f"{marker_id} does not occupy a table corner; expected one of "
+            f"{sorted(MAP_CALIBRATION_MARKER_CORNERS)}"
         ) from None
 
 
