@@ -42,13 +42,21 @@ from calibration_handler import load_calibration_markers, run_initial_calibratio
 from camera_stitching import process_and_join_streams, setup_camera_transforms
 from detection import detect_markers
 from hud import draw_monitor_window, draw_status_window
-from marker import map_detected_markers
+from calibration_contract import MAP_CALIBRATION_MARKER_IDS
+from marker import IGNORED_MARKER_ID, map_detected_markers
 from physical_building_catalog import catalog_entry, load_catalog, marker_index, save_catalog
 
 
 DEFAULT_SOURCE = SCRIPT_DIR / "buildings_all.geojson"
 DEFAULT_OUTPUT = SCRIPT_DIR / "physical-building-catalog.json"
-RESERVED_MARKER_IDS = {200, 201, 202, 203, 500}
+
+#: Marker ids this tool must never assign to a building, derived from the contracts that own them
+#: rather than restated. It used to hard-code `{200, 201, 202, 203, 500}`, which silently went
+#: stale the moment the calibration grid grew to nine markers: registering a building while the
+#: Table window is projecting them -- the normal state during a rig session -- would have decoded
+#: 204-208, passed them through the sighting gate, and written a calibration marker into a
+#: building's `marker_ids`. At runtime a footprint would then be drawn on top of that marker.
+RESERVED_MARKER_IDS = set(MAP_CALIBRATION_MARKER_IDS) | {IGNORED_MARKER_ID}
 
 
 def confirm_replace(

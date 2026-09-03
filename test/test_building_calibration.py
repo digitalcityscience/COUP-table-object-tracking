@@ -20,6 +20,7 @@ from physical_building_catalog import (
     DEFAULT_BUILDING_CALIBRATION,
     apply_building_calibration,
     building_calibration_of,
+    calibration_as_message_fields,
     calibration_from_message,
     building_feature,
     catalog_entry,
@@ -96,6 +97,38 @@ def test_a_message_translates_only_the_fields_it_actually_carries():
         "offset_north_m": pytest.approx(-0.2)
     }
     assert calibration_from_message({"type": "building_calibration"}) == {}
+
+
+def test_the_stored_calibration_round_trips_back_into_the_message_s_units():
+    """The panel has to be able to open showing where a building actually stands.
+
+    Without this the panel could only start from zero, and since Python *replaces* each field it
+    receives, the operator's next save would wipe the previous sitting's measurements rather than
+    refine them. So the inverse conversion is a correctness requirement, not a convenience.
+    """
+    message = {
+        "rotation_offset_deg": -2.5,
+        "offset_east_mm": 0.7,
+        "offset_north_mm": -0.24,
+        "scale_residual": 1.01,
+    }
+    entry = apply_building_calibration(_entry(), calibration_from_message(message))
+
+    assert calibration_as_message_fields(entry) == {
+        "rotation_offset_deg": pytest.approx(-2.5),
+        "offset_east_mm": pytest.approx(0.7),
+        "offset_north_mm": pytest.approx(-0.24),
+        "scale_residual": pytest.approx(1.01),
+    }
+
+
+def test_an_uncalibrated_building_reports_a_neutral_message_calibration():
+    assert calibration_as_message_fields(_entry()) == {
+        "rotation_offset_deg": 0.0,
+        "offset_east_mm": 0.0,
+        "offset_north_mm": 0.0,
+        "scale_residual": 1.0,
+    }
 
 
 # --- catalog storage --------------------------------------------------------------------

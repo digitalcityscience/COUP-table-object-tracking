@@ -70,10 +70,51 @@ def test_session_id_separates_two_different_aois():
     assert first != second
 
 
-def test_session_id_separates_two_runs_over_the_same_aoi():
+def test_re_entering_the_same_aoi_later_the_same_day_is_the_same_session():
+    """The workflow's own words: "Aynı AOI ile tekrar başlanınca aynı id çıkar."
+
+    `server.py` mints an id on every accepted `map_calibration`, and an operator recalibrates
+    repeatedly while coaxing the markers into being read. At second resolution each of those would
+    open a fresh session and strand the previous one's building rows against a homography that had
+    already been replaced.
+    """
+    assert session_id_for(_AOI_CORNERS, at="2026-09-03T09:00:00") == session_id_for(
+        _AOI_CORNERS, at="2026-09-03T17:40:00"
+    )
+
+
+def test_a_different_day_on_the_same_aoi_is_a_different_session():
+    """The projector has been moved and the room relit; it is not the same measurement set."""
     first = session_id_for(_AOI_CORNERS, at="2026-09-03T14:05:00")
     second = session_id_for(_AOI_CORNERS, at="2026-09-04T09:00:00")
     assert first != second
+
+
+def test_the_session_id_does_not_depend_on_how_many_markers_were_decoded():
+    """The handshake now carries 4-9 points depending on which grid markers the cameras read.
+
+    Hashing the point list would make the id a signature of one detection round rather than of the
+    AOI, so a marker blinking out would silently fork the session mid-sitting.
+    """
+    four_corners = _AOI_CORNERS
+    with_extras = _AOI_CORNERS + [
+        [10.030497714390364, 53.57073154051318],  # top edge midpoint
+        [10.030497714390364, 53.569183833647685],  # bottom edge midpoint
+        [10.027891448941773, 53.5699576870804],  # left edge midpoint
+        [10.033103979838955, 53.5699576870804],  # right edge midpoint
+        [10.030497714390364, 53.5699576870804],  # centre
+    ]
+
+    assert session_id_for(with_extras, at="2026-09-03T14:05:00") == session_id_for(
+        four_corners, at="2026-09-03T14:05:00"
+    )
+
+
+def test_a_genuinely_different_area_still_gets_its_own_session():
+    """The digest must not be so forgiving that two real AOIs collapse into one."""
+    assert session_id_for(_AOI_CORNERS, at="2026-09-03T14:05:00") != session_id_for(
+        _OTHER_AOI_CORNERS, at="2026-09-03T14:05:00"
+    )
 
 
 def test_session_id_survives_floating_point_formatting_noise():
@@ -84,11 +125,11 @@ def test_session_id_survives_floating_point_formatting_noise():
     )
 
 
-def test_session_id_carries_a_readable_timestamp_and_an_aoi_hash():
+def test_session_id_carries_a_readable_date_and_an_aoi_hash():
     """Filenames and log lines are read by humans; an opaque digest would not be."""
     session_id = session_id_for(_AOI_CORNERS, at="2026-09-03T14:05:00")
     stamp, _, digest = session_id.partition("-")
-    assert stamp == "20260903T140500"
+    assert stamp == "20260903"
     assert len(digest) == 8 and all(character in "0123456789abcdef" for character in digest)
 
 
@@ -189,6 +230,25 @@ def test_recording_a_building_calibration_keeps_where_on_the_table_it_was_measur
     assert row["scale_residual"] == pytest.approx(1.01)
     assert row["table_x_px"] == pytest.approx(812.0)
     assert row["table_y_px"] == pytest.approx(405.0)
+
+
+def test_a_repeat_save_of_an_unmoved_block_replaces_its_row_despite_marker_jitter(tmp_path):
+    """The reason the table position is quantised before it becomes part of the row's identity.
+
+    `table_x_px` comes from an ArUco centre that wobbles by fractions of a pixel between frames,
+    so two saves of a block nobody touched arrive as two different REALs. Unrounded, an operator
+    dialling in one offset over four saves would leave four rows -- three superseded, all four
+    weighted equally by whatever fits the global correction.
+    """
+    store = _store(tmp_path)
+    session_id = _begin(store)
+
+    store.record_building(session_id, _calibration(table_x_px=812.13, table_y_px=404.91))
+    store.record_building(session_id, _calibration(table_x_px=811.87, table_y_px=405.22, rotation_offset_deg=-1.0))
+
+    (row,) = store.session_buildings(session_id)
+    assert row["rotation_offset_deg"] == pytest.approx(-1.0)
+    assert row["table_x_px"] == pytest.approx(812.0)
 
 
 def test_re_recording_the_same_building_at_the_same_spot_replaces_its_row(tmp_path):

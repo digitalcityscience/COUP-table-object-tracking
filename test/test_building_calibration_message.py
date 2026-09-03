@@ -330,3 +330,80 @@ async def test_a_malformed_calibration_does_not_kill_the_connection(rig):
         message = await session.push(_rig_snapshot())
 
     assert message["type"] == "FeatureCollection"
+
+
+@pytest.mark.asyncio
+async def test_a_published_building_carries_the_calibration_it_is_drawn_with(rig):
+    """What lets the panel open at the building's real pose instead of at zero."""
+    async with _Session() as session:
+        await _calibrated_session(session)
+        await session.send(_calibration_message())
+        message = await session.push(_rig_snapshot())
+
+    (feature,) = [f for f in message["features"] if f["properties"]["marker_id"] == _MARKER_ID]
+    documented = _calibration_message()
+    assert feature["properties"]["calibration"] == {
+        "rotation_offset_deg": pytest.approx(documented["rotation_offset_deg"]),
+        "offset_east_mm": pytest.approx(documented["offset_east_mm"]),
+        "offset_north_mm": pytest.approx(documented["offset_north_mm"]),
+        "scale_residual": pytest.approx(documented["scale_residual"]),
+    }
+    assert feature["properties"]["model_scale"] == 500
+
+
+@pytest.mark.asyncio
+async def test_a_measurement_is_refused_once_the_block_has_left_the_table(rig, monkeypatch):
+    """`table_x_px` exists to separate a position-dependent error from a per-building one.
+
+    Filing a measurement at a position the block is no longer at corrupts exactly that signal, so
+    a stale reading is refused rather than silently stamped onto the row.
+    """
+    async with _Session() as session:
+        await _calibrated_session(session)
+        # The marker was seen, then the block came off the table and nothing refreshed it.
+        stale = {
+            marker_id: (x, y, seen_at - server.TABLE_POSITION_MAX_AGE_SECONDS - 5)
+            for marker_id, (x, y, seen_at) in server.latest_table_pixel_positions.items()
+        }
+        server.latest_table_pixel_positions.update(stale)
+        await session.send(_calibration_message())
+        session_id = server.current_session_id
+
+    assert rig.store.session_buildings(session_id) == []
+
+
+@pytest.mark.asyncio
+async def test_clearing_the_calibration_forgets_where_every_block_was(rig):
+    """A pixel read under the old homography says nothing about the next one's table."""
+    async with _Session() as session:
+        await _calibrated_session(session)
+        assert server.latest_table_pixel_positions
+        await session.send(CONTRACT["frontend_to_backend"]["clear_calibration"])
+        assert server.latest_table_pixel_positions == {}
+
+
+@pytest.mark.asyncio
+async def test_the_live_catalog_and_the_working_catalog_agree_after_a_partial_save(rig):
+    """One merge, one result, copied to both -- never two merges onto two different bases.
+
+    The two catalogs are reconciled only by a manual publish, so they can legitimately hold
+    different values. Merging a partial message onto each separately would draw one thing on the
+    table, persist another, and record a third.
+    """
+    async with _Session() as session:
+        await _calibrated_session(session)
+        await session.send(_calibration_message())
+        await session.send(
+            {
+                "type": "building_calibration",
+                "version": 2,
+                "building_id": _BUILDING_ID,
+                "marker_id": _MARKER_ID,
+                "offset_north_mm": -0.40,
+            }
+        )
+        live = building_calibration_of(server.physical_buildings_by_marker[_MARKER_ID])
+
+    catalog = load_catalog(rig.working_catalog_path)
+    (building,) = [b for b in catalog["buildings"] if b["building_id"] == _BUILDING_ID]
+    assert live == building_calibration_of(building)

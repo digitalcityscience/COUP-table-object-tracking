@@ -231,6 +231,33 @@ def calibration_from_message(payload: dict[str, Any]) -> dict[str, float]:
     return calibration
 
 
+def calibration_as_message_fields(building: dict[str, Any]) -> dict[str, float]:
+    """One building's stored calibration, back in the units a `building_calibration` speaks.
+
+    The exact inverse of `calibration_from_message`, and published on every runtime feature so the
+    admin panel can open showing where a building actually stands rather than at zero. Without it
+    the panel has no way to read what Python already holds, and a second save built from a neutral
+    draft would silently replace the first sitting's measurements instead of refining them.
+
+    Named field-for-field after the message, so the value the panel receives is the value it sends
+    back with no conversion of its own -- which is what keeps `MODEL_SCALE` a Python-only number.
+    """
+    stored = building_calibration_of(building)
+    return {
+        message_field: (
+            local_metres_to_table_millimetres(stored[catalog_field])
+            if message_field.endswith("_mm")
+            else stored[catalog_field]
+        )
+        for message_field, catalog_field in BUILDING_CALIBRATION_MESSAGE_FIELDS.items()
+    }
+
+
+def local_metres_to_table_millimetres(metres: float) -> float:
+    """The inverse of `table_millimetres_to_local_metres` — catalog metres back to table mm."""
+    return metres * 1000 / MODEL_SCALE
+
+
 def building_calibration_of(building: dict[str, Any]) -> dict[str, float]:
     """One building's calibration, defaulted field by field.
 

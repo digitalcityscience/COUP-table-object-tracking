@@ -9,6 +9,7 @@ import socket as socket_module
 import signal
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +31,7 @@ from physical_building_catalog import (
     BUILDING_CALIBRATION_MESSAGE_FIELDS,
     MODEL_SCALE,
     apply_building_calibration,
+    calibration_as_message_fields,
     calibration_from_message,
     building_feature,
     load_catalog,
@@ -99,10 +101,22 @@ physical_building_catalog = load_catalog(Path(PHYSICAL_BUILDING_CATALOG_PATH))
 physical_buildings_by_marker = marker_index(physical_building_catalog)
 _warned_unknown_marker_ids: set[int] = set()
 
-# Where each building marker was last seen in table-pixel space. Python owns pixel space -- once
-# a homography exists the frontend only ever sees WGS84 -- so the server stamps every recorded
-# measurement with its own latest reading rather than trusting a value echoed back to it.
-latest_table_pixel_positions: dict[int, tuple[float, float]] = {}
+# Where each building marker was last seen in table-pixel space, and when. Python owns pixel
+# space -- once a homography exists the frontend only ever sees WGS84 -- so the server stamps
+# every recorded measurement with its own latest reading rather than trusting a value echoed
+# back to it.
+#
+# The timestamp is not bookkeeping: `table_x_px`/`table_y_px` exist to tell a position-dependent
+# homography error apart from a per-building one, so a measurement filed at a position the block
+# was not actually at corrupts the exact signal the whole record is kept for. A marker that has
+# stopped being seen keeps its last reading here forever otherwise, and a building left in
+# `session.tracking` could be saved against a position from a previous sitting.
+latest_table_pixel_positions: dict[int, tuple[float, float, float]] = {}
+
+# How stale a marker's last table-pixel reading may be before a measurement will not be filed
+# against it. Snapshots arrive every 200 ms, so a couple of seconds is many frames of grace for a
+# briefly occluded marker while still refusing a block that has left the table.
+TABLE_POSITION_MAX_AGE_SECONDS = 3.0
 # The calibration record (session_store.SessionStore). Lives next to server.py, not under
 # logs/, because logs/ is gitignored throwaway output and this file is the measurements
 # themselves -- the input to the global homography fit the next round derives.
@@ -141,7 +155,7 @@ def markers_to_building_geojson(
             continue
         center = tuple(marker_feature["geometry"]["coordinates"])
         table_pixel = (float(properties["table_x_px"]), float(properties["table_y_px"]))
-        latest_table_pixel_positions[marker_id] = table_pixel
+        latest_table_pixel_positions[marker_id] = (*table_pixel, time.time())
         feature = building_feature(
             building, marker_id, center, float(properties["rotation"]), scale=scale
         )
@@ -152,6 +166,10 @@ def markers_to_building_geojson(
         # The blocks' own scale, published so the panel can label an offset in table
         # millimetres without restating 1:500 on the frontend (OD: one source per number).
         feature["properties"]["model_scale"] = MODEL_SCALE
+        # What this building's calibration currently *is*, in the units the panel nudges in, so
+        # the panel opens showing where the building stands instead of at zero -- see
+        # `calibration_as_message_fields`.
+        feature["properties"]["calibration"] = calibration_as_message_fields(building)
         features.append(feature)
     return {"type": "FeatureCollection", "features": features}
 
@@ -183,12 +201,21 @@ def _record_building_calibration(payload: dict, peer) -> None:
             "the panel and the catalog disagree about what was moved"
         )
 
-    table_pixel = latest_table_pixel_positions.get(marker_id)
-    if table_pixel is None:
+    reading = latest_table_pixel_positions.get(marker_id)
+    if reading is None:
         raise ValueError(
             f"marker {marker_id} has not been seen on the table yet, so there is no position "
             "to record the measurement at"
         )
+    table_x_px, table_y_px, seen_at = reading
+    age_seconds = time.time() - seen_at
+    if age_seconds > TABLE_POSITION_MAX_AGE_SECONDS:
+        raise ValueError(
+            f"marker {marker_id} was last seen {age_seconds:.1f}s ago; a measurement filed at a "
+            "position the block is no longer at would corrupt the position-dependent signal the "
+            "record exists for"
+        )
+    table_pixel = (table_x_px, table_y_px)
 
     unknown = sorted(
         set(payload)
@@ -211,21 +238,28 @@ def _record_building_calibration(payload: dict, peer) -> None:
     if building_id not in working_index:
         raise ValueError(f"{building_id} is not in the working catalog at {working_path}")
     position = working_index[building_id]
-    working_catalog["buildings"][position] = apply_building_calibration(
+    updated_entry = apply_building_calibration(
         working_catalog["buildings"][position], calibration
     )
+    working_catalog["buildings"][position] = updated_entry
     save_catalog(working_path, working_catalog)
+    stored = updated_entry["calibration"]
 
-    # ...then the live catalog, so the operator sees the nudge on the projection at once.
+    # The live catalog then takes that same *result*, not a second merge of its own. The two
+    # catalogs are only reconciled by a manual publish-to-runtime.ps1, so they can legitimately
+    # start from different values -- and merging one partial message onto two different bases
+    # would draw one thing on the table, persist another, and record a third. Copying the result
+    # makes what the operator sees and what is stored the same by construction.
     updated_runtime = copy.deepcopy(physical_building_catalog)
     for index, entry in enumerate(updated_runtime["buildings"]):
         if entry["building_id"] == building_id:
-            updated_runtime["buildings"][index] = apply_building_calibration(entry, calibration)
+            updated_runtime["buildings"][index] = {
+                **entry,
+                "calibration": copy.deepcopy(stored),
+            }
             break
     physical_building_catalog = updated_runtime
     physical_buildings_by_marker = marker_index(physical_building_catalog)
-
-    stored = physical_buildings_by_marker[marker_id]["calibration"]
     session_store.record_building(
         current_session_id,
         BuildingCalibration(
@@ -400,6 +434,9 @@ async def handle_web_client(websocket):
                 basemap_homography = None
                 global_model_scale_factor = None
                 current_session_id = None
+                # Table positions belong to the calibration that produced them: a pixel read under
+                # the old homography says nothing about where a block sits under the next one.
+                latest_table_pixel_positions.clear()
                 print("Cleared basemap homography; resuming raw marker output")
                 calibration_logger.info("CALIBRATION CLEARED from %s", peer)
 

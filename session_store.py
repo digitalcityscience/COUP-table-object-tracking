@@ -39,6 +39,17 @@ import sqlite3
 #: keep apart.
 _AOI_HASH_PRECISION = 8
 
+#: The grain a measurement's table position is filed at, in table pixels. One pixel is one
+#: millimetre at 10 px/cm, which is already the finest movement the pipeline can represent, so
+#: rounding to it loses nothing real.
+#:
+#: Without it the primary key below never actually collapses a repeat measurement: `table_x_px`
+#: arrives from an ArUco centre that jitters by fractions of a pixel between frames, so two saves
+#: of a block the operator never moved land on two different REALs. An operator dialling in one
+#: offset over four saves would leave four rows -- three of them superseded, all four weighted
+#: equally by whatever fits the global correction.
+_TABLE_POSITION_GRAIN_PX = 1.0
+
 #: How much of the AOI digest goes into the session id. Eight hex characters is plenty to keep
 #: a day's AOIs apart and short enough to read out of a log line or a filename.
 _AOI_HASH_LENGTH = 8
@@ -69,27 +80,56 @@ CREATE TABLE IF NOT EXISTS session_buildings (
 """
 
 
+def _quantised_table_position(value: float) -> float:
+    """A table pixel position rounded to `_TABLE_POSITION_GRAIN_PX` — see that constant."""
+    return round(float(value) / _TABLE_POSITION_GRAIN_PX) * _TABLE_POSITION_GRAIN_PX
+
+
 def _aoi_digest(aoi_corners: Sequence[Sequence[float]]) -> str:
-    """A stable digest of an AOI's four corners, insensitive to float formatting noise."""
-    rounded = [
-        [round(float(value), _AOI_HASH_PRECISION) for value in corner] for corner in aoi_corners
+    """A stable digest of the *area* a set of geographic points covers.
+
+    Deliberately the rounded bounding box rather than the points themselves. The points handed in
+    are the calibration handshake's own `lat_lon_position`s, and there are now between four and
+    nine of them depending on which grid markers the cameras managed to decode this round -- so
+    hashing the list would make the digest a signature of one detection round rather than of the
+    AOI, and the same operator on the same AOI would fork a new session every time a marker
+    blinked. The extremes are the four corner markers either way, so the bounding box is the same
+    whether four points arrive or nine.
+
+    Rounded to `_AOI_HASH_PRECISION` (~1 mm on the ground, far below any real AOI change) so
+    float formatting noise in a re-serialised handshake cannot fork a session either.
+    """
+    points = [[float(value) for value in corner] for corner in aoi_corners]
+    if not points:
+        raise ValueError("cannot identify an AOI from no points")
+    extent = [
+        round(min(point[0] for point in points), _AOI_HASH_PRECISION),
+        round(min(point[1] for point in points), _AOI_HASH_PRECISION),
+        round(max(point[0] for point in points), _AOI_HASH_PRECISION),
+        round(max(point[1] for point in points), _AOI_HASH_PRECISION),
     ]
-    serialized = json.dumps(rounded, separators=(",", ":"))
+    serialized = json.dumps(extent, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:_AOI_HASH_LENGTH]
 
 
 def session_id_for(aoi_corners: Sequence[Sequence[float]], at: str | datetime | None = None) -> str:
-    """`<timestamp>-<aoi digest>`, e.g. `20260903T140500-1f3a9c02`.
+    """`<date>-<aoi digest>`, e.g. `20260903-1f3a9c02`.
 
-    Generated here and never sent by the frontend, which has no session id at all. Two properties
-    matter: re-entering calibration on the same AOI at the same moment lands on the same session
-    rather than forking one, and the id stays legible to a human reading a log line.
+    Generated here and never sent by the frontend, which has no session id at all.
 
-    `at` is a wall-clock timestamp (ISO 8601, or a `datetime`); it defaults to now. Passing it
-    explicitly is what lets a caller resume a session it already knows the timestamp of.
+    The stamp is the *date*, not the instant. A calibration sitting is a day at the rig, and the
+    property that matters is the one the workflow states outright: re-entering calibration on the
+    same AOI lands on the same session rather than forking one. `server.py` calls this on every
+    accepted `map_calibration`, and an operator recalibrates repeatedly while getting the markers
+    read -- with second resolution each of those would open a new session and strand the previous
+    one's building rows against a homography that had already been superseded. A different day on
+    the same AOI is a genuinely different sitting (the projector has been moved, the room relit)
+    and does get its own session.
+
+    `at` is a wall-clock timestamp (ISO 8601, or a `datetime`); it defaults to now.
     """
     moment = datetime.now() if at is None else (at if isinstance(at, datetime) else datetime.fromisoformat(at))
-    return f"{moment:%Y%m%dT%H%M%S}-{_aoi_digest(aoi_corners)}"
+    return f"{moment:%Y%m%d}-{_aoi_digest(aoi_corners)}"
 
 
 @dataclass(frozen=True)
@@ -206,8 +246,8 @@ class SessionStore:
                     float(calibration.offset_east_m),
                     float(calibration.offset_north_m),
                     float(calibration.scale_residual),
-                    float(calibration.table_x_px),
-                    float(calibration.table_y_px),
+                    _quantised_table_position(calibration.table_x_px),
+                    _quantised_table_position(calibration.table_y_px),
                     datetime.now().isoformat(timespec="seconds"),
                 ),
             )

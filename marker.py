@@ -11,6 +11,10 @@ CameraId = Union[int, str]
 # Sorted list view of the one contract in `calibration_contract`; never redeclared here.
 calibrationMarkerIds = sorted(MAP_CALIBRATION_MARKER_IDS)
 
+#: The runtime marker id that never denotes a trackable object (plan 17.4). Named here so tools
+#: that must exclude it -- `building_catalog/build.py` -- can import it instead of writing 500.
+IGNORED_MARKER_ID = 500
+
 @dataclass
 class Marker:
     id: int
@@ -145,7 +149,10 @@ def add_detected_markers_to_dict(
         for i in range(0, len(ids)):
             markerID = int(ids[i])
 
-            if markerID is not 500:
+            # Both this and `map_detected_markers` read `markerID is not 500` until 2026-09-03:
+            # an identity comparison against an int CPython does not intern, so it was always
+            # true and the ignored marker was never actually filtered out at either site.
+            if markerID != IGNORED_MARKER_ID:
                 position = normalizeCorners(corners[i])
 
                 if markerID not in markerDict:
@@ -168,7 +175,7 @@ def map_detected_markers(
             markerID = int(ids[i])
             now = time.time()
 
-            if markerID is not 500:
+            if markerID != IGNORED_MARKER_ID:
                 position = normalizeCorners(corners[i])
                 markerDict[markerID] = Marker(
                     id=markerID,
