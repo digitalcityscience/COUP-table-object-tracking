@@ -16,6 +16,9 @@
       "marker_ids": [
         12
       ],
+      "marker_reference_rotations": {
+        "12": 109.39333226262147
+      },
       "local_bbox": [
         -20.944513765771404,
         -20.479817886897305,
@@ -347,6 +350,9 @@
       "marker_ids": [
         18
       ],
+      "marker_reference_rotations": {
+        "18": 120.3190414018273
+      },
       "local_bbox": [
         -13.264419153931827,
         -18.927646876731398,
@@ -397,66 +403,14 @@
       }
     },
     {
-      "building_id": "G12",
-      "city_scope_id": "B-12",
-      "marker_ids": [
-        19
-      ],
-      "local_bbox": [
-        -20.1247755069234,
-        -11.935455038581097,
-        20.12475790378186,
-        11.935511737937388
-      ],
-      "geometry": {
-        "type": "Polygon",
-        "local_coordinates": [
-          [
-            [
-              -20.1247755069234,
-              -2.0659726879743423
-            ],
-            [
-              -16.334515263793715,
-              11.935511737937388
-            ],
-            [
-              20.12475790378186,
-              2.0660427967354273
-            ],
-            [
-              16.33549834911378,
-              -11.935455038581097
-            ],
-            [
-              -20.1247755069234,
-              -2.0659726879743423
-            ]
-          ]
-        ]
-      },
-      "source_properties": {
-        "id": null,
-        "AOG": null,
-        "GFK": null,
-        "WGF": null,
-        "area_planning_type": "unknown land use type",
-        "building_height": 34.7,
-        "building_id": "G12",
-        "elevation_at_bottom": 7.5,
-        "floor_area": 547.52,
-        "land_use_detailed_type": "to be defined",
-        "land_use_suggested": "- to be defined -",
-        "number_of_stories": 7,
-        "city_scope_id": "B-12"
-      }
-    },
-    {
       "building_id": "G17",
       "city_scope_id": "B-17",
       "marker_ids": [
         24
       ],
+      "marker_reference_rotations": {
+        "24": -69.9176893736038
+      },
       "local_bbox": [
         -22.341575492358384,
         -14.983037168012604,
@@ -504,116 +458,6 @@
         "land_use_suggested": "- to be defined -",
         "number_of_stories": 12,
         "city_scope_id": "B-17"
-      }
-    },
-    {
-      "building_id": "G20",
-      "city_scope_id": "B-20",
-      "marker_ids": [
-        27
-      ],
-      "local_bbox": [
-        -12.715883009216244,
-        -18.93305877532144,
-        12.71581590384274,
-        18.933059384626073
-      ],
-      "geometry": {
-        "type": "Polygon",
-        "local_coordinates": [
-          [
-            [
-              -0.7765062437860081,
-              18.933059384626073
-            ],
-            [
-              12.71581590384274,
-              13.60790604314716
-            ],
-            [
-              -0.12644426081844176,
-              -18.93305877532144
-            ],
-            [
-              -12.715883009216244,
-              -11.32272096796044
-            ],
-            [
-              -0.7765062437860081,
-              18.933059384626073
-            ]
-          ]
-        ]
-      },
-      "source_properties": {
-        "id": null,
-        "AOG": null,
-        "GFK": null,
-        "WGF": null,
-        "area_planning_type": "unknown land use type",
-        "building_height": 34.7,
-        "building_id": "G20",
-        "elevation_at_bottom": 7.5,
-        "floor_area": 489.27,
-        "land_use_detailed_type": "to be defined",
-        "land_use_suggested": "- to be defined -",
-        "number_of_stories": 7,
-        "city_scope_id": "B-20"
-      }
-    },
-    {
-      "building_id": "G39",
-      "city_scope_id": "B-39",
-      "marker_ids": [
-        47
-      ],
-      "local_bbox": [
-        -21.168253190477273,
-        -15.243901394836225,
-        21.168272795832976,
-        15.243948421486643
-      ],
-      "geometry": {
-        "type": "Polygon",
-        "local_coordinates": [
-          [
-            [
-              21.168272795832976,
-              -2.1871327860514778
-            ],
-            [
-              14.849375960243307,
-              -15.243901394836225
-            ],
-            [
-              -21.168253190477273,
-              2.1881794507485046
-            ],
-            [
-              -14.84936987329773,
-              15.243948421486643
-            ],
-            [
-              21.168272795832976,
-              -2.1871327860514778
-            ]
-          ]
-        ]
-      },
-      "source_properties": {
-        "id": null,
-        "AOG": null,
-        "GFK": null,
-        "WGF": null,
-        "area_planning_type": "unknown land use type",
-        "building_height": 34.7,
-        "building_id": "G39",
-        "elevation_at_bottom": 7.5,
-        "floor_area": 580,
-        "land_use_detailed_type": "to be defined",
-        "land_use_suggested": "- to be defined -",
-        "number_of_stories": 7,
-        "city_scope_id": "B-39"
       }
     }
   ]

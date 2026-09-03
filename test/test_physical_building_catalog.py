@@ -50,7 +50,18 @@ def test_catalog_entry_preserves_source_identity_and_units_contract():
     assert entry["building_id"] == "G17"
     assert entry["city_scope_id"] == "B-17"
     assert entry["marker_ids"] == [24]
+    assert entry["marker_reference_rotations"] == {"24": 0.0}
     assert entry["source_properties"]["height"] == 12
+
+
+def test_empty_catalog_file_starts_a_new_catalog(tmp_path):
+    path = tmp_path / "physical-building-catalog.json"
+    path.touch()
+
+    catalog = load_catalog(path)
+
+    assert catalog["version"] == 2
+    assert catalog["buildings"] == []
 
 
 def test_replace_defaults_to_no():
@@ -87,6 +98,13 @@ def test_runtime_geometry_is_geographic_for_different_aois_and_rotations(center,
     assert geometry_bbox(result["geometry"]) == bbox
     assert bbox[0] < center[0] < bbox[2]
     assert bbox[1] < center[1] < bbox[3]
+
+
+def test_runtime_rotation_is_relative_to_catalogued_marker_reference():
+    entry = catalog_entry(feature(), [24], {24: 170.0})
+    result = building_feature(entry, 24, (10.0, 53.0), -170.0)
+
+    assert result["properties"]["rotation"] == pytest.approx(20.0)
 
 
 def test_g17_marker_24_end_to_end():

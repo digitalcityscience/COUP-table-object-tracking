@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import queue
 import sys
 import threading
@@ -45,7 +46,7 @@ from marker import map_detected_markers
 from physical_building_catalog import catalog_entry, load_catalog, marker_index, save_catalog
 
 
-DEFAULT_SOURCE = PROJECT_ROOT.parent / "COUP-table-web-interface" / "buildings_all.geojson"
+DEFAULT_SOURCE = SCRIPT_DIR / "buildings_all.geojson"
 DEFAULT_OUTPUT = SCRIPT_DIR / "physical-building-catalog.json"
 RESERVED_MARKER_IDS = {200, 201, 202, 203, 500}
 
@@ -74,9 +75,10 @@ def load_source_buildings(path: Path) -> dict[str, dict[str, Any]]:
         building_id = feature.get("properties", {}).get("building_id")
         if not isinstance(building_id, str) or not building_id.strip():
             raise ValueError(f"Feature {index} has no building_id")
-        if building_id in buildings:
-            raise ValueError(f"Duplicate building_id in source: {building_id}")
-        buildings[building_id.upper()] = feature
+        normalized_building_id = building_id.strip().upper()
+        if normalized_building_id in buildings:
+            raise ValueError(f"Duplicate building_id in source: {normalized_building_id}")
+        buildings[normalized_building_id] = feature
     return buildings
 
 
@@ -140,18 +142,20 @@ def export_coordinate_comparison(
     )
 
 
-def _replace_latest(marker_snapshots: "queue.Queue[set[int]]", marker_ids: set[int]) -> None:
+def _replace_latest(
+    marker_snapshots: "queue.Queue[dict[int, float]]", marker_rotations: dict[int, float]
+) -> None:
     if marker_snapshots.full():
         try:
             marker_snapshots.get_nowait()
         except queue.Empty:
             pass
-    marker_snapshots.put_nowait(marker_ids)
+    marker_snapshots.put_nowait(marker_rotations)
 
 
 def run_visible_detection(
     stitching_setup,
-    marker_snapshots: "queue.Queue[set[int]]",
+    marker_snapshots: "queue.Queue[dict[int, float]]",
     stop_event: threading.Event,
 ) -> None:
     """Continuously run the same stitched detection/HUD loop as server.py."""
@@ -164,23 +168,46 @@ def run_visible_detection(
             draw_monitor_window(stitched_image, corners, rejected, "catalog")
             draw_status_window(detected, "catalog")
 
-            marker_ids = set()
-            if ids is not None:
-                marker_ids = {int(marker_id) for marker_id in ids.flatten()} - RESERVED_MARKER_IDS
-            _replace_latest(marker_snapshots, marker_ids)
+            marker_rotations = {
+                marker_id: float(marker.position[2])
+                for marker_id, marker in detected.items()
+                if marker_id not in RESERVED_MARKER_IDS
+            }
+            _replace_latest(marker_snapshots, marker_rotations)
     finally:
         cv2.destroyAllWindows()
 
 
-def observe_marker_ids(
-    marker_snapshots: "queue.Queue[set[int]]", sample_count: int
-) -> list[int]:
+def _circular_mean_degrees(angles: list[float]) -> float:
+    sine = sum(math.sin(math.radians(angle)) for angle in angles)
+    cosine = sum(math.cos(math.radians(angle)) for angle in angles)
+    return math.degrees(math.atan2(sine, cosine))
+
+
+def observe_marker_reference_rotations(
+    marker_snapshots: "queue.Queue[dict[int, float]]", sample_count: int
+) -> dict[int, float]:
     counts: Counter[int] = Counter()
+    rotations: dict[int, list[float]] = {}
     for _ in range(sample_count):
-        counts.update(marker_snapshots.get(timeout=5))
+        snapshot = marker_snapshots.get(timeout=5)
+        counts.update(snapshot.keys())
+        for marker_id, rotation in snapshot.items():
+            rotations.setdefault(marker_id, []).append(rotation)
 
     minimum_hits = max(2, sample_count // 2)
-    return sorted(marker_id for marker_id, hits in counts.items() if hits >= minimum_hits)
+    return {
+        marker_id: _circular_mean_degrees(rotations[marker_id])
+        for marker_id, hits in sorted(counts.items())
+        if hits >= minimum_hits
+    }
+
+
+def observe_marker_ids(
+    marker_snapshots: "queue.Queue[dict[int, float]]", sample_count: int
+) -> list[int]:
+    """Compatibility wrapper for callers interested only in stable marker IDs."""
+    return sorted(observe_marker_reference_rotations(marker_snapshots, sample_count))
 
 
 def ensure_markers_are_unique(
@@ -201,7 +228,7 @@ def build_catalog(args: argparse.Namespace) -> None:
     run_initial_calibration_if_needed()
     calibration_data = load_calibration_markers(str(args.camera_calibration))
     stitching_setup = setup_camera_transforms(calibration_data)
-    marker_snapshots: "queue.Queue[set[int]]" = queue.Queue(maxsize=max(args.samples * 2, 60))
+    marker_snapshots: "queue.Queue[dict[int, float]]" = queue.Queue(maxsize=max(args.samples * 2, 60))
     stop_event = threading.Event()
     detection_thread = threading.Thread(
         target=run_visible_detection,
@@ -227,7 +254,10 @@ def build_catalog(args: argparse.Namespace) -> None:
 
             print(f"Observing {args.samples} live camera frames for {building_id}...")
             try:
-                marker_ids = observe_marker_ids(marker_snapshots, args.samples)
+                marker_reference_rotations = observe_marker_reference_rotations(
+                    marker_snapshots, args.samples
+                )
+                marker_ids = sorted(marker_reference_rotations)
             except queue.Empty:
                 print("Camera frames stopped arriving. Check camera connections and calibration.")
                 continue
@@ -246,11 +276,16 @@ def build_catalog(args: argparse.Namespace) -> None:
                 print(error)
                 continue
 
-            entry = catalog_entry(source_buildings[building_id], marker_ids)
+            entry = catalog_entry(
+                source_buildings[building_id], marker_ids, marker_reference_rotations
+            )
             catalog["buildings"] = [item for item in catalog["buildings"] if item["building_id"] != building_id]
             catalog["buildings"].append(entry)
             save_catalog(args.output, catalog)
-            print(f"Saved {building_id} -> {marker_ids} ({len(catalog['buildings'])} catalog buildings)")
+            print(
+                f"Saved {building_id} -> {marker_ids}, reference rotations "
+                f"{marker_reference_rotations} ({len(catalog['buildings'])} catalog buildings)"
+            )
     finally:
         stop_event.set()
         detection_thread.join(timeout=2)

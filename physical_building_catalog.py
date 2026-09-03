@@ -88,7 +88,11 @@ def normalize_geometry(geometry: dict[str, Any]) -> tuple[dict[str, Any], list[f
     return local_geometry, local_bbox
 
 
-def catalog_entry(feature: dict[str, Any], marker_ids: list[int]) -> dict[str, Any]:
+def catalog_entry(
+    feature: dict[str, Any],
+    marker_ids: list[int],
+    marker_reference_rotations: dict[int, float] | None = None,
+) -> dict[str, Any]:
     properties = copy.deepcopy(feature.get("properties", {}))
     building_id = str(properties.get("building_id", "")).strip().upper()
     if not building_id:
@@ -97,10 +101,15 @@ def catalog_entry(feature: dict[str, Any], marker_ids: list[int]) -> dict[str, A
     if not isinstance(city_scope_id, str) or not city_scope_id:
         raise ValueError(f"Building {building_id} has no city_scope_id")
     geometry, local_bbox = normalize_geometry(feature["geometry"])
+    reference_rotations = marker_reference_rotations or {}
     return {
         "building_id": building_id,
         "city_scope_id": city_scope_id,
         "marker_ids": sorted(set(marker_ids)),
+        "marker_reference_rotations": {
+            str(marker_id): float(reference_rotations.get(marker_id, 0.0))
+            for marker_id in sorted(set(marker_ids))
+        },
         "local_bbox": local_bbox,
         "geometry": geometry,
         "source_properties": properties,
@@ -114,8 +123,10 @@ def empty_catalog() -> dict[str, Any]:
 def load_catalog(path: Path) -> dict[str, Any]:
     if not path.exists():
         return empty_catalog()
-    with path.open("r", encoding="utf-8") as catalog_file:
-        catalog = json.load(catalog_file)
+    raw_catalog = path.read_text(encoding="utf-8")
+    if not raw_catalog.strip():
+        return empty_catalog()
+    catalog = json.loads(raw_catalog)
     if catalog.get("version") != CATALOG_VERSION or catalog.get("coordinate_system") != COORDINATE_SYSTEM:
         raise ValueError(f"Unsupported physical-building catalog schema in {path}")
     if not isinstance(catalog.get("buildings"), list):
@@ -181,7 +192,11 @@ def place_geometry(
 def building_feature(
     building: dict[str, Any], marker_id: int, center: tuple[float, float], rotation: float
 ) -> dict[str, Any]:
-    geometry = place_geometry(building["geometry"], center, rotation)
+    reference_rotation = float(
+        building.get("marker_reference_rotations", {}).get(str(marker_id), 0.0)
+    )
+    effective_rotation = (rotation - reference_rotation + 180.0) % 360.0 - 180.0
+    geometry = place_geometry(building["geometry"], center, effective_rotation)
     return {
         "type": "Feature",
         "properties": {
@@ -189,7 +204,7 @@ def building_feature(
             "building_id": building["building_id"],
             "city_scope_id": building["city_scope_id"],
             "center": list(center),
-            "rotation": rotation,
+            "rotation": effective_rotation,
             "bbox": geometry_bbox(geometry),
         },
         "geometry": geometry,
