@@ -6,7 +6,7 @@ from typing import Dict, Tuple
 # from mock_camera import poll_frame_data  # for testing without pyrealsense cameras , using local video file streams instead
 from camera import poll_frame_data
 from image import sharpen_and_rotate_image, buffer_to_array
-from calibration_contract import CORNER_ORDER, assert_not_mirrored
+from calibration_contract import CORNER_ORDER, TABLE_PIXELS_PER_CM, assert_not_mirrored
 
 
 
@@ -46,7 +46,10 @@ def calculate_perspective_transform(camera_setup: Dict) -> Tuple[np.ndarray, Tup
     
     # Define target points for a perfect rectangle (we'll scale this appropriately)
     # Use a scale factor to get reasonable pixel dimensions
-    scale_factor = 10  # 10 pixels per cm initially
+    # Declared in calibration_contract, not here: pixel_to_utm turns this same density into
+    # the table's ground scale, and TOSCA-2 restates it to denominate the pixel coordinates it
+    # sends back. Three readers, one number.
+    scale_factor = TABLE_PIXELS_PER_CM
     target_width = int(physical_width * scale_factor)
     target_height = int(physical_height * scale_factor)
     

@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 from pyproj import Transformer
 
+from calibration_contract import TABLE_PIXELS_PER_CM
+
 """
 TODO server py to listen to frontend for messages
 - map calibration
@@ -43,10 +45,17 @@ class BasemapHomography:
     and mixing such different magnitudes (especially in float32) can destabilize
     the homography solve. We instead solve pixel -> (utm - utm_offset), then add
     utm_offset back onto any projected point.
+
+    `pixel_centroid` is the mean pixel position of the calibration points the homography was
+    solved from. A projective transform has no single scale -- it stretches differently in
+    different parts of the image -- so anything that needs *the* scale of this calibration
+    (`ground_scale`) has to name a sample point. Carrying it on the homography pins that choice
+    to the calibration itself rather than leaving each caller to invent one.
     """
 
     matrix: np.ndarray
     utm_offset: tuple[float, float]
+    pixel_centroid: tuple[float, float]
 
 
 def create_basemap_homography(basemap_calibration_points: list[BasemapCalibrationPoint]) -> BasemapHomography:
@@ -93,7 +102,13 @@ def create_basemap_homography(basemap_calibration_points: list[BasemapCalibratio
     # calibration points may contain outliers (e.g. noisy manual clicks).
     matrix, _mask = cv2.findHomography(pixel_points, local_utm_points, method=0)
 
-    return BasemapHomography(matrix=matrix, utm_offset=(utm_offset[0], utm_offset[1]))
+    pixel_centroid = pixel_points.mean(axis=0)
+
+    return BasemapHomography(
+        matrix=matrix,
+        utm_offset=(utm_offset[0], utm_offset[1]),
+        pixel_centroid=(float(pixel_centroid[0]), float(pixel_centroid[1])),
+    )
 
 
 def project_pixel_to_utm(homography: BasemapHomography, pixel_position: tuple[float, float]) -> tuple[float, float]:
@@ -105,6 +120,38 @@ def project_pixel_to_utm(homography: BasemapHomography, pixel_position: tuple[fl
         float(local_x) + homography.utm_offset[0],
         float(local_y) + homography.utm_offset[1],
     )
+
+
+def metres_per_table_pixel(
+    homography: BasemapHomography, at_pixel: tuple[float, float]
+) -> float:
+    """How many real-world metres one table pixel spans at `at_pixel`.
+
+    Read straight off the homography as |H(x + 1, y) - H(x, y)| in UTM metres, so it needs no
+    knowledge of the AOI, the table's physical size, or anything the frontend sends. Measured
+    along the pixel-x axis: the AOI is aspect-locked to the table by construction
+    (`collabScenario.viewfinderScreenCorners`), so the two axes carry the same scale, and a
+    single-axis probe keeps the number one thing rather than an average of two.
+    """
+    x, y = float(at_pixel[0]), float(at_pixel[1])
+    origin, one_pixel_east = project_pixels_to_utm(
+        homography, np.array([[x, y], [x + 1.0, y]], dtype=np.float64)
+    )
+    return float(np.hypot(*(one_pixel_east - origin)))
+
+
+def ground_scale(homography: BasemapHomography) -> float:
+    """The table map's scale denominator: real-world centimetres per table centimetre.
+
+    ~270 on the 2026-08-31 rig, i.e. a 1:270 map. This is the number the physical blocks
+    disagree with -- they are milled at 1:500 -- and it is derived here rather than sent by the
+    frontend or measured with a ruler, so there is a single place for it to be wrong.
+
+    Sampled at the homography's own `pixel_centroid`: near the middle of the calibrated quad,
+    where a projective transform's local scale is most representative of the whole table.
+    """
+    metres_per_pixel = metres_per_table_pixel(homography, homography.pixel_centroid)
+    return metres_per_pixel * TABLE_PIXELS_PER_CM * 100
 
 
 def project_pixels_to_utm(homography: BasemapHomography, pixel_positions: np.ndarray) -> np.ndarray:

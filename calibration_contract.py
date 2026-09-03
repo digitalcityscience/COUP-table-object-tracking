@@ -17,6 +17,15 @@ from typing import Dict, Final, Sequence, Tuple
 Corner = str
 Point = Sequence[float]
 
+#: Table-pixel density of the stitched, rectified table image: the `scale_factor` that
+#: `camera_stitching.calculate_perspective_transform` warps every camera frame onto. It lives
+#: here, next to the marker ids, because it is equally part of the frontend contract -- TOSCA-2
+#: restates it as `collabCalibration.ts::DEFAULT_COLLAB_TABLE_CONFIG.tablePixelSpace.pixelsPerCm`
+#: and every table-pixel coordinate crossing the wire is denominated in it. It is also the bridge
+#: from `pixel_to_utm.metres_per_table_pixel` to a ground scale: metres per pixel only becomes a
+#: map scale once you know how many pixels a table centimetre is. Nothing else may declare it.
+TABLE_PIXELS_PER_CM: Final[int] = 10
+
 #: Corner names in the fixed order `camera_stitching.calculate_perspective_transform`
 #: reads them: a closed traversal of the quad, not an arbitrary set.
 CORNER_ORDER: Final[Tuple[Corner, ...]] = (

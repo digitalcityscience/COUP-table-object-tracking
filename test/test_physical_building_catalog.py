@@ -6,7 +6,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from build_physical_building_catalog import confirm_replace, ensure_markers_are_unique
+import importlib.util
+
+_BUILD_TOOL = Path(__file__).resolve().parents[1] / "building_catalog" / "build.py"
+_spec = importlib.util.spec_from_file_location("building_catalog_build", _BUILD_TOOL)
+_build = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_build)
+confirm_replace = _build.confirm_replace
+ensure_markers_are_unique = _build.ensure_markers_are_unique
 from physical_building_catalog import (
     building_feature,
     catalog_entry,
@@ -110,14 +117,16 @@ def test_runtime_rotation_is_relative_to_catalogued_marker_reference():
 def test_g17_marker_24_end_to_end():
     catalog = load_catalog(Path(__file__).resolve().parents[1] / "physical-building-catalog.json")
     entry = marker_index(catalog)[24]
-    result = building_feature(entry, 24, (9.99, 53.55), 32)
+    reference_rotation = entry["marker_reference_rotations"]["24"]
+    result = building_feature(entry, 24, (9.99, 53.55), reference_rotation + 32)
 
     assert result["properties"] == {
         "marker_id": 24,
         "building_id": "G17",
         "city_scope_id": "B-17",
         "center": [9.99, 53.55],
-        "rotation": 32,
+        "rotation": pytest.approx(32),
+        "model_scale_factor": 1.0,
         "bbox": result["properties"]["bbox"],
     }
     assert result["geometry"]["type"] == "Polygon"

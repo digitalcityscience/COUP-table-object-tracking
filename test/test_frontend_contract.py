@@ -17,6 +17,9 @@ import pytest
 import server
 from calibration_contract import MAP_CALIBRATION_MARKER_CORNERS
 from marker import Marker, Markers
+from physical_building_catalog import MODEL_SCALE
+from pixel_to_utm import ground_scale
+from session_store import SessionStore
 
 websockets = pytest.importorskip("websockets")
 
@@ -53,6 +56,9 @@ class _Session:
 
     async def __aenter__(self):
         server.basemap_homography = None
+        server.global_model_scale_factor = None
+        server.current_session_id = None
+        server.current_session_id = None
         while not server.tracking_queue.empty():
             server.tracking_queue.get_nowait()
         self._handler_done = asyncio.Event()
@@ -84,6 +90,7 @@ class _Session:
         while not server.tracking_queue.empty():
             server.tracking_queue.get_nowait()
         server.basemap_homography = None
+        server.global_model_scale_factor = None
 
     async def push(self, snapshot: dict) -> dict:
         """Publish one snapshot and return the message the client actually received."""
@@ -208,3 +215,86 @@ async def test_a_reconnecting_client_still_gets_calibration_markers():
     async with _Session() as session:  # fresh connection, homography reset by the fixture
         message = await session.push(_rig_snapshot())
     assert {200, 201, 202, 203}.issubset({int(key) for key in message})
+
+
+@pytest.mark.asyncio
+async def test_accepting_the_handshake_derives_the_model_scale_factor():
+    """Step 1: the ~1.85x oversize is closed by a factor read off the accepted homography.
+
+    Nothing in the frontend's payload mentions scale -- this asserts the server derives it
+    itself, and that the number is the ratio between the map it just calibrated and the 1:500
+    blocks on the table.
+    """
+    payload = CONTRACT["frontend_to_backend"]["map_calibration"]
+    async with _Session() as session:
+        await session.send(payload)
+        derived = server.global_model_scale_factor
+        # Read inside the session: `_Session.__aexit__` resets both globals.
+        expected = ground_scale(server.basemap_homography) / MODEL_SCALE
+        message = await session.push(_rig_snapshot())
+
+    assert derived is not None, "server accepted a calibration without deriving a scale factor"
+    assert derived == pytest.approx(expected)
+    # The 2026-08-31 AOI is a good deal finer than 1:500, so geometry must shrink, not grow.
+    assert 0 < derived < 1
+    # ...and every emitted building carries the factor it was actually drawn with.
+    for feature in message["features"]:
+        assert feature["properties"]["model_scale_factor"] == pytest.approx(derived)
+
+
+@pytest.mark.asyncio
+async def test_clearing_the_calibration_drops_the_model_scale_factor_with_it():
+    """A factor that outlived its homography would silently mis-size the next AOI."""
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        assert server.global_model_scale_factor is not None
+        await session.send(CONTRACT["frontend_to_backend"]["clear_calibration"])
+        assert server.global_model_scale_factor is None
+
+
+@pytest.fixture
+def temporary_session_store(tmp_path, monkeypatch):
+    """Redirect the module-level store so a test never writes the rig's real record."""
+    store = SessionStore(tmp_path / "calibration.sqlite3")
+    monkeypatch.setattr(server, "session_store", store)
+    return store
+
+
+@pytest.mark.asyncio
+async def test_accepting_the_handshake_opens_a_session_row(temporary_session_store):
+    """Step 2's done-condition: a calibration lands one session row with the right ground scale."""
+    payload = CONTRACT["frontend_to_backend"]["map_calibration"]
+    async with _Session() as session:
+        await session.send(payload)
+        session_id = server.current_session_id
+        expected_ground_scale = ground_scale(server.basemap_homography)
+
+    assert session_id is not None, "calibration accepted without opening a session"
+    assert temporary_session_store.session_count() == 1
+    row = temporary_session_store.session(session_id)
+    assert row["ground_scale"] == pytest.approx(expected_ground_scale)
+    assert row["global_k"] == pytest.approx(expected_ground_scale / MODEL_SCALE)
+    # The homography actually solved, not a placeholder: 3x3, bottom-right normalised to 1.
+    assert len(row["homography"]) == 3 and len(row["homography"][0]) == 3
+    assert row["homography"][2][2] == pytest.approx(1.0)
+    # The AOI signature is the handshake's own four geographic points.
+    assert len(row["aoi_corners"]) == len(payload["points"])
+
+
+@pytest.mark.asyncio
+async def test_recalibrating_the_same_aoi_reuses_its_session(temporary_session_store):
+    """Re-entering calibration on one AOI must not scatter its buildings across sessions."""
+    payload = CONTRACT["frontend_to_backend"]["map_calibration"]
+    async with _Session() as session:
+        await session.send(payload)
+        first = server.current_session_id
+        await session.send(CONTRACT["frontend_to_backend"]["clear_calibration"])
+        assert server.current_session_id is None
+        await session.send(payload)
+        second = server.current_session_id
+
+    # Same AOI within the same second is the same session; a later second is a new run, which is
+    # deliberate -- either way exactly one row exists per (moment, AOI) pair, never a duplicate.
+    assert second is not None
+    assert temporary_session_store.session_count() == (1 if first == second else 2)
+    assert temporary_session_store.session(second) is not None

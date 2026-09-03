@@ -30,13 +30,24 @@ def markers_json_to_geojson(markers_json: Mapping[int, Sequence[float]], basemap
     utm_points = project_pixels_to_utm(basemap_homography, pixel_points)
     lon, lat = _UTM_TO_WGS84.transform(utm_points[:, 0], utm_points[:, 1])
 
+    # The table-pixel position rides along beside the projected one. Python owns pixel space --
+    # after calibration the frontend never sees a pixel coordinate again -- so this is the only
+    # way the admin panel can know *where on the table* a building was measured, which is what
+    # separates a position-dependent homography error from a per-building sticking error.
     features = [
         {
             "type": "Feature",
-            "properties": {"marker_id": marker_id, "rotation": rotation},
+            "properties": {
+                "marker_id": marker_id,
+                "rotation": rotation,
+                "table_x_px": float(pixel[0]),
+                "table_y_px": float(pixel[1]),
+            },
             "geometry": {"type": "Point", "coordinates": [lon_i, lat_i]},
         }
-        for marker_id, rotation, lon_i, lat_i in zip(marker_ids, rotations, lon, lat) # if marker_id in [0, 1, 2, 3]
+        for marker_id, rotation, pixel, lon_i, lat_i in zip(
+            marker_ids, rotations, pixel_points, lon, lat
+        )
     ]
 
     return {"type": "FeatureCollection", "features": features}

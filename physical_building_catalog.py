@@ -20,6 +20,32 @@ COORDINATE_SYSTEM = {
 }
 _GEOD = Geod(ellps="WGS84")
 
+#: The four per-building calibration fields, in the order the panel presents them. The single
+#: declared list: `apply_building_calibration` validates against it, so a typo'd field is refused
+#: at the boundary instead of being stored, ignored at runtime, and never noticed.
+BUILDING_CALIBRATION_FIELDS = (
+    "rotation_offset_deg",
+    "offset_east_m",
+    "offset_north_m",
+    "scale_residual",
+)
+
+#: What an uncalibrated building means. A true no-op, not an approximate one: the three buildings
+#: registered before this step existed carry no calibration block at all and must keep drawing
+#: byte-identically.
+DEFAULT_BUILDING_CALIBRATION = {
+    "rotation_offset_deg": 0.0,
+    "offset_east_m": 0.0,
+    "offset_north_m": 0.0,
+    "scale_residual": 1.0,
+}
+
+#: The scale the physical blocks on the table are milled at: 1:500. The single declared value --
+#: the catalog stores real-world metres and the table map is drawn at whatever ground scale the
+#: operator's AOI happens to land on, so this is the only place the two are reconciled. Verified
+#: to 1-2 mm on two blocks (G07, G17) with a ruler; G11 is still unverified.
+MODEL_SCALE = 500
+
 
 def _positions(geometry: dict[str, Any]) -> Iterable[list[float]]:
     geometry_type = geometry.get("type")
@@ -162,16 +188,105 @@ def marker_index(catalog: dict[str, Any]) -> dict[int, dict[str, Any]]:
     return result
 
 
-def place_geometry(
-    local_geometry: dict[str, Any], center: tuple[float, float], rotation_degrees: float
+def table_millimetres_to_local_metres(millimetres: float) -> float:
+    """One table millimetre, in the catalog's real-world local metres.
+
+    The panel's fine adjustment is one arrow-key tick = 1 table pixel = 1 mm (10 px/cm), and the
+    catalog stores real metres, so the two are exactly `MODEL_SCALE` apart. Named here rather
+    than written out at the call site because it is the one place the panel's unit and the
+    catalog's unit meet, and mixing them up is a factor-of-500 error that looks plausible on
+    screen.
+    """
+    return millimetres / 1000 * MODEL_SCALE
+
+
+def building_calibration_of(building: dict[str, Any]) -> dict[str, float]:
+    """One building's calibration, defaulted field by field.
+
+    Defaulted per field rather than per block, so a catalog entry that has only ever had its
+    rotation nudged still reports a neutral offset and scale instead of nothing.
+    """
+    stored = building.get("calibration") or {}
+    return {
+        field: float(stored.get(field, DEFAULT_BUILDING_CALIBRATION[field]))
+        for field in BUILDING_CALIBRATION_FIELDS
+    }
+
+
+def apply_building_calibration(
+    building: dict[str, Any], calibration: dict[str, Any]
 ) -> dict[str, Any]:
-    """Rotate local metres and geodesically place them around ``(longitude, latitude)``."""
+    """A copy of `building` with `calibration`'s fields merged into its calibration block.
+
+    A merge, not a replacement: the panel saves whichever axis the operator actually touched,
+    and silently resetting the others would undo earlier measurements. Returns a copy so a
+    rejected write can never have half-mutated the live in-memory catalog.
+    """
+    unknown = sorted(set(calibration) - set(BUILDING_CALIBRATION_FIELDS))
+    if unknown:
+        raise ValueError(
+            f"Unknown building calibration field(s) {', '.join(unknown)}; "
+            f"expected some of {', '.join(BUILDING_CALIBRATION_FIELDS)}"
+        )
+    merged = building_calibration_of(building)
+    for field, value in calibration.items():
+        merged[field] = float(value)
+    if not merged["scale_residual"] > 0:
+        raise ValueError(
+            f"scale_residual must be positive, got {merged['scale_residual']!r}"
+        )
+    updated = copy.deepcopy(building)
+    updated["calibration"] = merged
+    return updated
+
+
+def model_scale_factor(ground_scale: float) -> float:
+    """How far catalog geometry must shrink to land on top of its 1:500 block.
+
+    The catalog is in real-world metres; the table map is drawn at `ground_scale` real-world
+    centimetres per table centimetre (see `pixel_to_utm.ground_scale`), so unscaled catalog
+    metres draw a building at `real_size / ground_scale` on the table while its block is
+    `real_size / 500`. Multiplying the local coordinates by this factor makes the two equal:
+    `(ground_scale / 500) / ground_scale == 1 / 500`, independent of the AOI.
+
+    ~0.54 on the 2026-08-31 rig (1:270 map), which is exactly the ~1.85x oversize measured on
+    the table, inverted.
+    """
+    if not ground_scale > 0:
+        raise ValueError(f"ground scale must be positive, got {ground_scale!r}")
+    return ground_scale / MODEL_SCALE
+
+
+def place_geometry(
+    local_geometry: dict[str, Any],
+    center: tuple[float, float],
+    rotation_degrees: float,
+    scale: float = 1.0,
+    offset: tuple[float, float] = (0.0, 0.0),
+) -> dict[str, Any]:
+    """Rotate local metres and geodesically place them around ``(longitude, latitude)``.
+
+    `scale` (see `model_scale_factor`) is applied in the local east/north frame, before the
+    rotation and before anything touches degrees: scaling and rotation about the same anchor
+    commute, so the footprint keeps its size at any heading, and the anchor stays exactly
+    `center` because the local frame's origin is the catalog's `bbox_center`.
+
+    `offset` is the building's own east/north correction, in the *same* local metres as the
+    geometry -- the gap between where the marker is actually glued and the block's bbox centre.
+    Added before the rotation, so it turns with the block instead of with the compass: a
+    correction stored in world axes would keep pointing east and be wrong the instant the
+    operator turned the block, which is the one thing this frame choice exists to prevent.
+    Being in catalog metres, it also shrinks onto the table with the footprint rather than
+    needing its own scale rule.
+    """
     center_lng, center_lat = center
     angle = math.radians(rotation_degrees)
     cosine, sine = math.cos(angle), math.sin(angle)
+    offset_east, offset_north = float(offset[0]), float(offset[1])
 
     def to_wgs84(position: list[float]) -> list[float]:
-        east, north = float(position[0]), float(position[1])
+        east = (float(position[0]) + offset_east) * scale
+        north = (float(position[1]) + offset_north) * scale
         rotated_east = east * cosine - north * sine
         rotated_north = east * sine + north * cosine
         distance = math.hypot(rotated_east, rotated_north)
@@ -190,13 +305,45 @@ def place_geometry(
 
 
 def building_feature(
-    building: dict[str, Any], marker_id: int, center: tuple[float, float], rotation: float
+    building: dict[str, Any],
+    marker_id: int,
+    center: tuple[float, float],
+    rotation: float,
+    scale: float = 1.0,
 ) -> dict[str, Any]:
+    """The runtime geometry for one detected marker: catalog shape, placed and sized for the map.
+
+    `scale` is the session's `model_scale_factor` (see there). The building's own
+    `calibration` block (see `building_calibration_of`) then lands on top of it as the residual:
+
+        effective_rotation = detected - marker_reference_rotation + rotation_offset_deg
+        effective_scale    = session model_scale_factor * scale_residual
+        offset             = (offset_east_m, offset_north_m), in the block's own frame
+
+    That order is the error model, not a preference: the global pixel-to-geography mapping is
+    applied first and the per-building constants absorb only what is left. Reversed, each
+    building's offset would quietly soak up the homography error in its corner of the table and
+    be wrong the moment the block was moved.
+
+    `model_scale_factor` is reported back on the feature so the projected drawing carries the
+    number it was actually drawn with -- when a building comes out the wrong size on the table,
+    that says whether the scale or the catalog is at fault without reading the server's log.
+    """
     reference_rotation = float(
         building.get("marker_reference_rotations", {}).get(str(marker_id), 0.0)
     )
-    effective_rotation = (rotation - reference_rotation + 180.0) % 360.0 - 180.0
-    geometry = place_geometry(building["geometry"], center, effective_rotation)
+    calibration = building_calibration_of(building)
+    effective_rotation = (
+        rotation - reference_rotation + calibration["rotation_offset_deg"] + 180.0
+    ) % 360.0 - 180.0
+    effective_scale = scale * calibration["scale_residual"]
+    geometry = place_geometry(
+        building["geometry"],
+        center,
+        effective_rotation,
+        scale=effective_scale,
+        offset=(calibration["offset_east_m"], calibration["offset_north_m"]),
+    )
     return {
         "type": "Feature",
         "properties": {
@@ -205,6 +352,7 @@ def building_feature(
             "city_scope_id": building["city_scope_id"],
             "center": list(center),
             "rotation": effective_rotation,
+            "model_scale_factor": effective_scale,
             "bbox": geometry_bbox(geometry),
         },
         "geometry": geometry,
