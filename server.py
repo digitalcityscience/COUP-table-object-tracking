@@ -352,19 +352,27 @@ def parse_args():
     return parser.parse_args()
 
 
-args = parse_args()
+def run_from_command_line():
+    args = parse_args()
 
-logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO)
 
-# Register signal handlers
-signal.signal(signal.SIGINT, shutdown_handler)  # Ctrl+C
-signal.signal(signal.SIGTERM, shutdown_handler)  # Termination signal
+    # Register signal handlers
+    signal.signal(signal.SIGINT, shutdown_handler)  # Ctrl+C
+    signal.signal(signal.SIGTERM, shutdown_handler)  # Termination signal
 
-try:
-    loop.run_until_complete(main(args.client, calibrate=args.calibrate))
-except KeyboardInterrupt:
-    shutdown_handler(None, None)
-finally:
-    if pixel_socket is not None:
-        pixel_socket.close()
-    loop.close()
+    try:
+        loop.run_until_complete(main(args.client, calibrate=args.calibrate))
+    except KeyboardInterrupt:
+        shutdown_handler(None, None)
+    finally:
+        if pixel_socket is not None:
+            pixel_socket.close()
+        loop.close()
+
+
+# Guarded so the module can be imported (by tests, and by anything that wants
+# `handle_web_client` without owning the process). `python server.py` is unchanged:
+# argument parsing, signal handlers and the event loop all still run exactly as before.
+if __name__ == "__main__":
+    run_from_command_line()

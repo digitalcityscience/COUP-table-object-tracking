@@ -3,11 +3,13 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Union
 
+from calibration_contract import MAP_CALIBRATION_MARKER_IDS
 from detection import Corner, normalizeCorners
 
 Position = Tuple[int, int, float]
 CameraId = Union[int, str]
-calibrationMarkerIds = [200, 201, 202, 203]
+# Sorted list view of the one contract in `calibration_contract`; never redeclared here.
+calibrationMarkerIds = sorted(MAP_CALIBRATION_MARKER_IDS)
 
 @dataclass
 class Marker:
@@ -38,7 +40,14 @@ class Marker:
 
 
 class Markers:
-    mDict: Dict[int, Marker] = {}
+    # Per-instance, not shared. This was a bare class attribute, so every Markers() aliased
+    # one dict: two holders silently accumulated into each other, and the confidence counts
+    # one of them reported belonged partly to the other. Production only ever builds one
+    # holder (`server._detection_worker`), so this is behaviour-preserving there.
+    mDict: Dict[int, Marker]
+
+    def __init__(self):
+        self.mDict = {}
 
     def clear(self):
         self.mDict.clear()
@@ -100,18 +109,26 @@ class Markers:
         return json.dumps(self.toDict())
 
     def toDict(self) -> Dict[int, List[float]]:
-        if self.foundCalibrationMarkers():
-            print("sending only calibration markers")
-            print("markers found:",  self.reduceToCalibrationMarkers().keys())
+        """One snapshot carrying both marker kinds, each on its own admission rule.
 
-            return printJSON(self.reduceToCalibrationMarkers())
+        Building markers keep the confidence gate: a single stray read should not place a
+        building on the table. Calibration markers bypass it, because the holder is cleared
+        every 200 ms (`server._detection_worker`) and "confidence >= 1" therefore means
+        "seen twice inside one 200 ms window" -- unreachable below ~10 fps, which is routine
+        when two camera streams are being stitched. The frontend runs its own stability
+        check across snapshots before accepting a calibration reading, so the gate belongs
+        there, not here.
 
-        return printJSON(self.pruneUncertainties())
-            
-        
-
-        
-        
+        Crucially the two sets are merged rather than one replacing the other. This used to
+        return *only* the calibration markers as soon as any one of them was visible, which
+        silenced the entire building feed for as long as a calibration marker stayed on the
+        table. That was harmless while `calibrationMarkerIds` still held 100-103 (ids the
+        frontend never projects, so the branch never fired) and became a live regression the
+        moment the list was corrected to the 200-203 the frontend actually shows.
+        """
+        markers = self.pruneUncertainties()
+        markers.update(self.reduceToCalibrationMarkers())
+        return printJSON(markers)
 
 
 MarkerDictionary = Dict[int, Marker]

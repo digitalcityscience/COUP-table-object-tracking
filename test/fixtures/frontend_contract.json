@@ -1,0 +1,53 @@
+{
+  "_note": "The documented wire contract between this server and the TOSCA-2 collab frontend. Every shape here is taken from the frontend's own guards in src/collab/stores/collabTracking.ts (isRawMarkerDictionary / isTrackingFeatureCollection / isCalibrationAck, parseRawMarkerSnapshot, buildMapCalibrationFromMarkerReadings) and from known_good_map_calibration_2026-08-31.json, the handshake the operator confirmed working on the live rig. Backend contract tests read this file rather than restating the JSON inline, so the two sides cannot drift apart silently.",
+
+  "map_calibration_marker_corners": {
+    "200": "top_left",
+    "201": "top_right",
+    "202": "bottom_left",
+    "203": "bottom_right"
+  },
+
+  "frontend_to_backend": {
+    "map_calibration": {
+      "_produced_by": "collabTracking.ts::buildMapCalibrationFromMarkerReadings",
+      "_consumed_by": "server.py::handle_web_client.receive_messages -> _parse_calibration_points",
+      "_note": "points are ordered by MAP_CALIBRATION_MARKERS, i.e. 200, 201, 202, 203. lat_lon_position is [lat, lng]. Pixel positions below are the operator-confirmed 2026-08-31 readings.",
+      "type": "map_calibration",
+      "version": 2,
+      "points": [
+        { "pixel_position": [288, 658], "lat_lon_position": [53.57073154051318, 10.027891448941773] },
+        { "pixel_position": [1347, 663], "lat_lon_position": [53.57073154051318, 10.033103979838955] },
+        { "pixel_position": [298, 153], "lat_lon_position": [53.569183833647685, 10.027891448941773] },
+        { "pixel_position": [1350, 150], "lat_lon_position": [53.569183833647685, 10.033103979838955] }
+      ]
+    },
+    "clear_calibration": {
+      "_produced_by": "collabTracking.ts::RealTrackingSource.recalibrate",
+      "_note": "Drops the homography so the raw marker feed resumes; this is how the frontend re-enters calibration.",
+      "type": "clear_calibration"
+    }
+  },
+
+  "backend_to_frontend": {
+    "raw_marker_snapshot": {
+      "_produced_by": "marker.py::printJSON via Markers.toDict",
+      "_consumed_by": "collabTracking.ts::isRawMarkerDictionary + parseRawMarkerSnapshot",
+      "_note": "Plain object keyed by marker id; each value is [pixel_x, pixel_y, rotation, camera_or_tag]. Sent while no basemap homography is configured. JSON object keys are strings; the frontend does Number(key), so numeric ids survive the round trip. An empty object is valid and means 'nothing on the table'.",
+      "example": {
+        "200": [288, 658, 0.0, "000"],
+        "201": [1347, 663, 0.0, "000"],
+        "202": [298, 153, 0.0, "000"],
+        "203": [1350, 150, 0.0, "000"],
+        "12": [700, 400, 12.5, "000"]
+      }
+    },
+    "building_geojson": {
+      "_produced_by": "server.py::markers_to_building_geojson",
+      "_consumed_by": "collabTracking.ts::isTrackingFeatureCollection",
+      "_note": "Sent once a basemap homography exists. Only ids present in physical-building-catalog.json become features, so calibration markers 200-203 never appear here. An empty FeatureCollection is still a valid, meaningful message (it proves Python is on the calibrated feed).",
+      "type": "FeatureCollection",
+      "features": []
+    }
+  }
+}

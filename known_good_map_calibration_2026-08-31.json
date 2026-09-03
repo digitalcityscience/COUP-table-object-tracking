@@ -1,0 +1,29 @@
+{
+  "_note": "Reference snapshot of a map_calibration (AOI<->table) handshake that the operator confirmed read reliably on all 4 corner markers during the 2026-08-31 live-rig diagnosis session. Distinct from calibration_markers.json (that file is per-camera stitching calibration, cameras 104/863, markers 180-193). This is the frontend<->Python AOI calibration, markers 200-203.",
+  "accepted_at_utc": "2026-08-31T09:54:48Z",
+  "accepted_at_local": "2026-08-31 11:54:48",
+  "aoi": {
+    "corners_lat_lon": {
+      "top_left": [53.57073154051318, 10.027891448941773],
+      "top_right": [53.57073154051318, 10.033103979838955],
+      "bottom_left": [53.569183833647685, 10.027891448941773],
+      "bottom_right": [53.569183833647685, 10.033103979838955]
+    },
+    "groundScale": 215.1177996836629,
+    "targetGroundScale": 500
+  },
+  "marker_table_pixel_positions": {
+    "200_top_left": [288, 658],
+    "201_top_right": [1347, 663],
+    "202_bottom_left": [298, 153],
+    "203_bottom_right": [1350, 150]
+  },
+  "marker_render_size_px": 90,
+  "map_zoom_at_render": 18.342439891297683,
+  "homography_matrix": [
+    [0.33290904193780435, -0.0006958672719895796, -271.5773577346676],
+    [0.004500496353812643, 0.3444114543974342, -143.20838797045926],
+    [1.5132620012213879e-05, 1.3725096255251326e-05, 1.0]
+  ],
+  "utm_offset": [568241.8437340179, 5936170.458117333]
+}

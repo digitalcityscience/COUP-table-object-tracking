@@ -55,7 +55,6 @@ def test_map_calibration_snapshot_keeps_frontend_marker_ids():
         [
             Marker(200, (10, 20, 0.0), time.time(), "000"),
             Marker(201, (30, 40, 0.0), time.time(), "000"),
-            Marker(100, (50, 60, 0.0), time.time(), "000"),
         ]
     )
 
@@ -63,6 +62,54 @@ def test_map_calibration_snapshot_keeps_frontend_marker_ids():
         200: [10, 20, 0.0, "000"],
         201: [30, 40, 0.0, "000"],
     }
+
+
+def test_calibration_markers_do_not_silence_the_building_feed():
+    """A visible calibration marker must not blank out the buildings.
+
+    `toDict` used to return *only* the calibration markers as soon as one of them was
+    visible. That branch was dead while `calibrationMarkerIds` held 100-103 (ids the
+    frontend never projects), so buildings always flowed. Correcting the list to the
+    200-203 the frontend really shows woke the branch up, and any calibration marker left
+    on the table then silenced every building for as long as it stayed there.
+    """
+    markers_holder = Markers()
+    markers_holder.clear()
+    markers_holder.addMarkers(
+        [
+            # A building seen twice in one window: passes the confidence gate.
+            Marker(12, (50, 60, 0.0), 12121, "000"),
+            Marker(12, (51, 61, 0.0), 12121, "000"),
+            # A calibration marker seen once: exempt from the gate.
+            Marker(200, (10, 20, 0.0), 12121, "000"),
+        ]
+    )
+
+    snapshot = markers_holder.toDict()
+    assert snapshot == {
+        12: [51, 61, 0.0, "000"],
+        200: [10, 20, 0.0, "000"],
+    }
+
+
+def test_building_markers_still_need_confidence():
+    """The calibration exemption must not leak into the building path."""
+    markers_holder = Markers()
+    markers_holder.clear()
+    markers_holder.addMarker(Marker(12, (50, 60, 0.0), 12121, "000"))
+
+    assert markers_holder.toDict() == {}
+
+
+def test_marker_ids_stay_numbers_in_the_snapshot():
+    """The frontend does Number(key) on the JSON object keys; ids must be numeric here."""
+    markers_holder = Markers()
+    markers_holder.clear()
+    markers_holder.addMarker(Marker(203, (1350, 150, 0.0), 12121, "000"))
+
+    snapshot = markers_holder.toDict()
+    assert list(snapshot) == [203]
+    assert all(isinstance(key, int) for key in snapshot)
 
 
 def test_calibration_markers_survive_a_single_sighting():

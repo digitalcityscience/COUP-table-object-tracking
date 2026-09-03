@@ -6,6 +6,7 @@ from typing import Dict, Tuple
 # from mock_camera import poll_frame_data  # for testing without pyrealsense cameras , using local video file streams instead
 from camera import poll_frame_data
 from image import sharpen_and_rotate_image, buffer_to_array
+from calibration_contract import CORNER_ORDER, assert_not_mirrored
 
 
 
@@ -25,11 +26,17 @@ def calculate_perspective_transform(camera_setup: Dict) -> Tuple[np.ndarray, Tup
     physical_points = []
     
     # Order: top_left, top_right, bottom_right, bottom_left
-    for position in ["top_left", "top_right", "bottom_right", "bottom_left"]:
+    for position in CORNER_ORDER:
         marker = camera_setup["calibration_markers"][position]
         src_points.append(marker["pixel_position"])
         physical_points.append(marker["physical_position"])
-    
+
+    # A calibration whose corner labels are wound the wrong way builds a transform that
+    # mirrors the table image. Nothing downstream notices: warpPerspective succeeds, frames
+    # keep flowing, and ArUco simply stops decoding (mirrored codes are not in the
+    # dictionary), so the rig looks alive while seeing nothing. Fail here instead.
+    assert_not_mirrored(src_points, context="calibration_markers.json")
+
     src_points = np.array(src_points, dtype=np.float32)
     physical_points = np.array(physical_points, dtype=np.float32)
 
