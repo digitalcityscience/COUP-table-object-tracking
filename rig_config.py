@@ -21,30 +21,46 @@ camera mounting, without anyone having to re-derive the ordering by hand.
 
 from typing import Dict, Final, Sequence, Tuple
 
-from calibration_contract import CORNER_ORDER, assert_not_mirrored
+from calibration_contract import CORNER_ORDER, assert_not_mirrored, signed_area
 
 TABLE_WIDTH_CM: Final = 80.0
 TABLE_HEIGHT_CM: Final = 80.0
 MARKER_CENTER_OFFSET_CM: Final = 3.0
 
 # Camera IDs intentionally use the last three digits exposed by camera.poll_frame_data.
-# Position is the camera's place in the stitching grid -- a mounting fact, not a marker fact.
+# `position` is the camera's place in the stitching grid -- a mounting fact.
+# `marker_ids` is the sequential block belonging to that table: the rig was deliberately
+# laid out this way so nobody has to type four ids per camera into a prompt.
+#
+# This must stay a per-camera SET, not a shared pool. The cameras' fields of view overlap,
+# so camera 104 can see 863's markers: on the live rig it read 183 near the centre of its
+# own frame. Accepting "whichever four rig markers turn up" therefore silently swapped a
+# missing 192 for a foreign 183 and produced a nonsense quad. Which of a table's own four
+# ids lands on which corner is still never assumed -- that comes from the geometry.
 RIG_CAMERAS: Final = {
-    "863": {"position": "top_left"},
-    "104": {"position": "top_right"},
+    "863": {
+        "position": "top_left",
+        "marker_ids": (180, 181, 182, 183),
+    },
+    "104": {
+        "position": "top_right",
+        "marker_ids": (190, 191, 192, 193),
+    },
 }
 
-#: Every id reserved for rig (camera-stitching) calibration, as a flat pool. Deliberately
-#: not split per camera and not mapped to corners: both of those have changed with the
-#: physical layout before (the tables were re-laid from an interleaved arrangement to one
-#: sequential block per table) and hardcoding either is what produced a mirrored
-#: calibration. Each camera claims whichever four of these it can actually see, and
-#: `assign_corners_by_geometry` decides the corners. Any arrangement, any starting corner,
-#: any mounting -- no code change.
-RIG_MARKER_IDS: Final[frozenset] = frozenset(range(180, 184)) | frozenset(range(190, 194))
+#: Every id reserved for rig (camera-stitching) calibration, across both tables.
+RIG_MARKER_IDS: Final[frozenset] = frozenset(
+    marker_id
+    for camera in RIG_CAMERAS.values()
+    for marker_id in camera["marker_ids"]
+)
 
 #: How many rig markers each camera must see before its corners can be assigned.
 MARKERS_PER_CAMERA: Final = 4
+
+#: Minimum fraction of its bounding box that the four markers' quad must cover before it is
+#: accepted as a table outline. See `assign_corners_by_geometry` for the measured values.
+MIN_QUAD_FILL_RATIO: Final = 0.75
 
 
 def marker_physical_positions() -> Dict[str, list]:
@@ -91,6 +107,32 @@ def assign_corners_by_geometry(
     top_pair, bottom_pair = by_vertical[:2], by_vertical[2:]
     top_left, top_right = sorted(top_pair, key=lambda item: item[1][0])
     bottom_left, bottom_right = sorted(bottom_pair, key=lambda item: item[1][0])
+
+    # Four table corners fill their own bounding box almost completely, even under a fair
+    # amount of perspective keystone. A stray marker somewhere in the middle of the frame
+    # collapses the quad into a dart while leaving the bounding box unchanged, so the fill
+    # ratio is what separates them. Measured on the live rig: a correct camera-863 read
+    # fills 0.965 and a correct camera-104 read 0.958, while the bad camera-104 read that
+    # picked up a foreign marker at frame centre filled only 0.443.
+    quad = [
+        top_left[1][:2],
+        top_right[1][:2],
+        bottom_right[1][:2],
+        bottom_left[1][:2],
+    ]
+    xs = [point[0] for point in quad]
+    ys = [point[1] for point in quad]
+    bounding_area = (max(xs) - min(xs)) * (max(ys) - min(ys))
+    fill = abs(signed_area(quad)) / bounding_area if bounding_area else 0.0
+    if fill < MIN_QUAD_FILL_RATIO:
+        raise ValueError(
+            f"{context}: markers {sorted(observed)} do not outline a table -- they fill "
+            f"only {fill:.2f} of their bounding box (a real four-corner read fills about "
+            f"0.96, minimum accepted {MIN_QUAD_FILL_RATIO}). Positions were "
+            f"{ {marker_id: [round(c, 1) for c in point[:2]] for marker_id, point in sorted(observed.items())} }. "
+            "Most likely one of this camera's own markers was occluded and a marker from "
+            "the neighbouring table was picked up in its place."
+        )
 
     corners = {
         "top_left": top_left[0],

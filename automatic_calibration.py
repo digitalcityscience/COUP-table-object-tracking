@@ -29,8 +29,7 @@ from camera import poll_frame_data
 from detection import detect_markers
 from image import buffer_to_array, sharpen_and_rotate_image
 from rig_config import (
-    MARKERS_PER_CAMERA,
-    RIG_MARKER_IDS,
+    RIG_CAMERAS,
     assign_corners_by_geometry,
     build_fixed_camera_setup,
 )
@@ -55,11 +54,9 @@ def calibrate_fixed_rig(output_path: Path, *, timeout_seconds: float = 60.0) -> 
 
     try:
         for camera_id, camera_config in camera_setup.items():
+            wanted = set(RIG_CAMERAS[camera_id]["marker_ids"])
             print(f"\nCamera {camera_id} ({camera_config['position']})")
-            print(
-                f"  Waiting for any {MARKERS_PER_CAMERA} of the rig markers "
-                f"{sorted(RIG_MARKER_IDS)}..."
-            )
+            print(f"  Waiting for this table's markers {sorted(wanted)}...")
             window_name = f"Camera {camera_id}"
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(window_name, 960, 600)
@@ -69,7 +66,7 @@ def calibrate_fixed_rig(output_path: Path, *, timeout_seconds: float = 60.0) -> 
             observed_ids = set()
             deadline = time.monotonic() + timeout_seconds
 
-            while len(found) < MARKERS_PER_CAMERA:
+            while set(found) != wanted:
                 frame_camera_id, image_data = next(frame_iterator)
                 if frame_camera_id != camera_id:
                     continue
@@ -92,7 +89,11 @@ def calibrate_fixed_rig(output_path: Path, *, timeout_seconds: float = 60.0) -> 
                     for detected_id, detected_corners in zip(
                         detected_ids, detected_corners_list
                     ):
-                        if detected_id in RIG_MARKER_IDS and detected_id not in found:
+                        # Only this table's own markers. The cameras' views overlap, so
+                        # the neighbouring table's ids do turn up here; adopting one of
+                        # them in place of an occluded marker is what produced a nonsense
+                        # calibration for camera 104.
+                        if detected_id in wanted and detected_id not in found:
                             center = _marker_center(detected_corners)
                             found[detected_id] = center
                             print(
@@ -100,19 +101,9 @@ def calibrate_fixed_rig(output_path: Path, *, timeout_seconds: float = 60.0) -> 
                                 f"({center[0]:.1f}, {center[1]:.1f})"
                             )
 
-                    # More than four rig markers in view means this camera can see the
-                    # neighbouring table's set too, so "whichever four" would be a coin
-                    # flip. Say so rather than calibrate against an arbitrary subset.
-                    if len(found) > MARKERS_PER_CAMERA:
-                        raise RuntimeError(
-                            f"Camera {camera_id} sees {len(found)} rig markers "
-                            f"({sorted(found)}), expected exactly {MARKERS_PER_CAMERA}. "
-                            "Mask or move the markers that belong to the other table."
-                        )
-
                 cv2.putText(
                     preview,
-                    f"Seen {len(found)}/{MARKERS_PER_CAMERA}: {sorted(found) or 'none'}",
+                    f"Still needed: {sorted(wanted - set(found)) or 'none'}",
                     (20, 35),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.8,
@@ -132,12 +123,13 @@ def calibrate_fixed_rig(output_path: Path, *, timeout_seconds: float = 60.0) -> 
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     raise RuntimeError("Automatic calibration was cancelled")
 
-                if len(found) < MARKERS_PER_CAMERA and time.monotonic() >= deadline:
+                if set(found) != wanted and time.monotonic() >= deadline:
                     raise RuntimeError(
-                        f"Calibration timed out for camera {camera_id}: saw "
-                        f"{len(found)} of {MARKERS_PER_CAMERA} rig markers "
-                        f"({sorted(found)}). IDs observed while waiting: "
-                        f"{sorted(observed_ids)}"
+                        f"Calibration timed out for camera {camera_id}: still missing "
+                        f"{sorted(wanted - set(found))} of this table's markers "
+                        f"{sorted(wanted)}. IDs observed while waiting: "
+                        f"{sorted(observed_ids)}. Check that the missing marker is "
+                        "unoccluded and within this camera's view."
                     )
 
             # Corner roles come from the measurement, never from an assumed id ordering.

@@ -50,17 +50,6 @@ SEQUENTIAL_CORNERS = {
     "104": ["193", "192", "191", "190"],
 }
 
-#: The rig's previous arrangement, kept as a test case only: ids interleaved across the two
-#: tables. Nothing in the code knows about either layout -- that is the point.
-INTERLEAVED_LAYOUT = {
-    "863": {180: (299.9, 43.9), 193: (1019.7, 31.6), 192: (1039.9, 758.1), 182: (313.9, 769.7)},
-    "104": {190: (335.3, 33.6), 181: (1051.3, 47.1), 183: (1063.4, 764.7), 191: (321.4, 777.5)},
-}
-INTERLEAVED_CORNERS = {
-    "863": ["180", "193", "192", "182"],
-    "104": ["190", "181", "183", "191"],
-}
-
 RIG_LAYOUT = SEQUENTIAL_LAYOUT
 
 
@@ -99,19 +88,16 @@ def _run(monkeypatch, tmp_path, layout, detection_order=None, timeout_seconds=1.
     )
 
 
-@pytest.mark.parametrize(
-    "layout,expected",
-    [
-        pytest.param(SEQUENTIAL_LAYOUT, SEQUENTIAL_CORNERS, id="sequential-per-table"),
-        pytest.param(INTERLEAVED_LAYOUT, INTERLEAVED_CORNERS, id="interleaved-legacy"),
-    ],
-)
-def test_corner_roles_come_from_where_the_markers_actually_are(
-    monkeypatch, tmp_path, layout, expected
-):
-    """The same code must calibrate either physical arrangement, with no config change."""
-    result = _run(monkeypatch, tmp_path, layout)
-    for camera_id, corner_ids in expected.items():
+def test_corner_roles_come_from_where_the_markers_actually_are(monkeypatch, tmp_path):
+    """Corners are measured, not assumed.
+
+    The ids each camera owns are fixed by the rig (a sequential block per table, needed so
+    a neighbouring table's marker can never be adopted). Which of those four lands on
+    which corner is not: the markers are laid clockwise from the bottom-left, the old code
+    assumed the top-left, and that 180-degree label error mirrored the table image.
+    """
+    result = _run(monkeypatch, tmp_path, SEQUENTIAL_LAYOUT)
+    for camera_id, corner_ids in SEQUENTIAL_CORNERS.items():
         assert [
             result[camera_id]["calibration_markers"][corner]["id"]
             for corner in CORNER_ORDER
@@ -152,6 +138,25 @@ def test_pixel_positions_are_the_measured_centres(monkeypatch, tmp_path):
     top_left = result["863"]["calibration_markers"]["top_left"]
     assert top_left["id"] == "183"
     assert top_left["pixel_position"] == pytest.approx([300.8, 54.4], abs=1e-3)
+
+
+def test_a_foreign_marker_in_view_is_ignored_not_adopted(monkeypatch, tmp_path):
+    """Camera 104 can see table 863's markers; it must never calibrate against one.
+
+    On the live rig camera 104 lost sight of its own 192 and read 863's 183 near the
+    centre of its frame. While the code took "whichever four rig markers turn up", 183 was
+    silently accepted as top_right and the calibration was nonsense with no error.
+    """
+    layout = {
+        "863": SEQUENTIAL_LAYOUT["863"],
+        # 104's own four, plus a foreign marker sitting in the middle of its frame.
+        "104": {**SEQUENTIAL_LAYOUT["104"], 183: (604.5, 393.7)},
+    }
+    result = _run(monkeypatch, tmp_path, layout)
+
+    ids_104 = [result["104"]["calibration_markers"][c]["id"] for c in CORNER_ORDER]
+    assert "183" not in ids_104, "calibrated against the neighbouring table's marker"
+    assert ids_104 == SEQUENTIAL_CORNERS["104"]
 
 
 def test_a_camera_that_never_shows_all_four_markers_fails_loudly(
