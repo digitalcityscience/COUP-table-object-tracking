@@ -2,16 +2,19 @@
 
 The legacy flow (`save_calibration_markers`) asked the operator, corner by corner, which
 marker id was physically there, then watched the stream until that id showed up. This flow
-removes the typing without removing the measurement: it watches each camera until all four
-of that camera's rig markers have been seen at least once, and then derives the corner
-roles from where they actually were (`rig_config.assign_corners_by_geometry`).
+removes the typing without removing the measurement: it watches each camera until it has
+seen four of the rig's markers, then derives the corner roles from where they actually were
+(`rig_config.assign_corners_by_geometry`).
 
-The previous version of this file instead trusted a hardcoded id -> corner table and
-recorded each marker at whatever corner that table claimed. Because the table's assumed
-layout did not match the rig, every camera's corner labels came out vertically flipped, the
-perspective transform built from them mirrored the table image, and ArUco -- which is
-rotation-invariant but not mirror-invariant -- stopped decoding the projected calibration
-markers entirely.
+Nothing here assumes which ids a camera owns or which corner an id occupies. The previous
+version assumed both -- a fixed id -> corner table, clockwise from the top-left -- and
+recorded each marker at whatever corner that table claimed. The markers are laid clockwise
+from the bottom-left, so every corner label came out rotated 180 degrees, the perspective
+transform built from them mirrored the table image, and ArUco -- rotation-invariant but not
+mirror-invariant -- stopped decoding the projected calibration markers entirely.
+
+Because the assignment is purely geometric, the rig can be re-laid (it has been: from an
+interleaved arrangement to one sequential block per table) without touching this code.
 """
 
 import json
@@ -25,7 +28,12 @@ from calibration_contract import CORNER_ORDER
 from camera import poll_frame_data
 from detection import detect_markers
 from image import buffer_to_array, sharpen_and_rotate_image
-from rig_config import RIG_CAMERAS, assign_corners_by_geometry, build_fixed_camera_setup
+from rig_config import (
+    MARKERS_PER_CAMERA,
+    RIG_MARKER_IDS,
+    assign_corners_by_geometry,
+    build_fixed_camera_setup,
+)
 from save_calibration_markers import export_pictures_for_debugging
 from distortion_analysis import analyze_camera_distortion
 
@@ -47,9 +55,11 @@ def calibrate_fixed_rig(output_path: Path, *, timeout_seconds: float = 60.0) -> 
 
     try:
         for camera_id, camera_config in camera_setup.items():
-            wanted = set(RIG_CAMERAS[camera_id]["marker_ids"])
             print(f"\nCamera {camera_id} ({camera_config['position']})")
-            print(f"  Looking for markers {sorted(wanted)}...")
+            print(
+                f"  Waiting for any {MARKERS_PER_CAMERA} of the rig markers "
+                f"{sorted(RIG_MARKER_IDS)}..."
+            )
             window_name = f"Camera {camera_id}"
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(window_name, 960, 600)
@@ -59,7 +69,7 @@ def calibrate_fixed_rig(output_path: Path, *, timeout_seconds: float = 60.0) -> 
             observed_ids = set()
             deadline = time.monotonic() + timeout_seconds
 
-            while set(found) != wanted:
+            while len(found) < MARKERS_PER_CAMERA:
                 frame_camera_id, image_data = next(frame_iterator)
                 if frame_camera_id != camera_id:
                     continue
@@ -82,7 +92,7 @@ def calibrate_fixed_rig(output_path: Path, *, timeout_seconds: float = 60.0) -> 
                     for detected_id, detected_corners in zip(
                         detected_ids, detected_corners_list
                     ):
-                        if detected_id in wanted and detected_id not in found:
+                        if detected_id in RIG_MARKER_IDS and detected_id not in found:
                             center = _marker_center(detected_corners)
                             found[detected_id] = center
                             print(
@@ -90,9 +100,19 @@ def calibrate_fixed_rig(output_path: Path, *, timeout_seconds: float = 60.0) -> 
                                 f"({center[0]:.1f}, {center[1]:.1f})"
                             )
 
+                    # More than four rig markers in view means this camera can see the
+                    # neighbouring table's set too, so "whichever four" would be a coin
+                    # flip. Say so rather than calibrate against an arbitrary subset.
+                    if len(found) > MARKERS_PER_CAMERA:
+                        raise RuntimeError(
+                            f"Camera {camera_id} sees {len(found)} rig markers "
+                            f"({sorted(found)}), expected exactly {MARKERS_PER_CAMERA}. "
+                            "Mask or move the markers that belong to the other table."
+                        )
+
                 cv2.putText(
                     preview,
-                    f"Still needed: {sorted(wanted - set(found)) or 'none'}",
+                    f"Seen {len(found)}/{MARKERS_PER_CAMERA}: {sorted(found) or 'none'}",
                     (20, 35),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.8,
@@ -112,10 +132,11 @@ def calibrate_fixed_rig(output_path: Path, *, timeout_seconds: float = 60.0) -> 
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     raise RuntimeError("Automatic calibration was cancelled")
 
-                if set(found) != wanted and time.monotonic() >= deadline:
+                if len(found) < MARKERS_PER_CAMERA and time.monotonic() >= deadline:
                     raise RuntimeError(
-                        f"Calibration timed out for camera {camera_id}. Still missing "
-                        f"{sorted(wanted - set(found))}. IDs observed while waiting: "
+                        f"Calibration timed out for camera {camera_id}: saw "
+                        f"{len(found)} of {MARKERS_PER_CAMERA} rig markers "
+                        f"({sorted(found)}). IDs observed while waiting: "
                         f"{sorted(observed_ids)}"
                     )
 

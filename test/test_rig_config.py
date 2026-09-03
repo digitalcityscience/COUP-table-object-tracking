@@ -5,7 +5,9 @@ import pytest
 
 from calibration_contract import CORNER_ORDER, is_mirrored
 from rig_config import (
+    MARKERS_PER_CAMERA,
     RIG_CAMERAS,
+    RIG_MARKER_IDS,
     assign_corners_by_geometry,
     build_fixed_camera_setup,
 )
@@ -39,20 +41,27 @@ def test_fixed_camera_setup_describes_the_table_but_not_the_corner_layout():
             assert "pixel_position" not in marker
 
 
-def test_rig_declares_each_camera_s_marker_ids_as_an_unordered_set():
-    assert set(RIG_CAMERAS["863"]["marker_ids"]) == {180, 182, 192, 193}
-    assert set(RIG_CAMERAS["104"]["marker_ids"]) == {181, 183, 190, 191}
+def test_rig_declares_a_flat_marker_pool_not_a_per_camera_mapping():
+    """No camera owns a fixed id set and no id owns a fixed corner.
+
+    Both have changed with the physical layout already (interleaved -> one sequential
+    block per table), and hardcoding either is what produced a mirrored calibration.
+    """
+    assert RIG_MARKER_IDS == {180, 181, 182, 183, 190, 191, 192, 193}
+    assert MARKERS_PER_CAMERA == 4
+    for camera in RIG_CAMERAS.values():
+        assert set(camera) == {"position"}
 
 
-def test_rig_marker_ids_match_the_last_known_good_calibration():
-    """The declared per-camera id sets come from the measured calibration, not invention."""
+def test_the_shipped_calibration_s_ids_all_come_from_the_rig_pool():
     path = Path(__file__).resolve().parent.parent / "calibration_markers.json"
     calibration = json.loads(path.read_text(encoding="utf-8"))
     for camera_id, camera in calibration.items():
         measured = {
             int(camera["calibration_markers"][corner]["id"]) for corner in CORNER_ORDER
         }
-        assert measured == set(RIG_CAMERAS[camera_id]["marker_ids"])
+        assert len(measured) == MARKERS_PER_CAMERA
+        assert measured <= RIG_MARKER_IDS, f"camera {camera_id} uses non-rig ids"
 
 
 def test_corners_are_assigned_from_observed_positions():

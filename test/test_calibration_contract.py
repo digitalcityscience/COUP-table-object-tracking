@@ -91,6 +91,25 @@ def test_the_exact_quad_the_broken_calibration_produced_is_rejected():
         assert_not_mirrored(broken_863, context="camera 863")
 
 
+def test_the_shipped_calibration_is_the_sequential_rig_layout():
+    """The target state: one sequential id block per table, corners fixed from geometry.
+
+    Camera 863 owns 180-183 and camera 104 owns 190-193 (the arrangement the automatic
+    calibration was introduced for). The corner order is clockwise from the bottom-left,
+    which is how the markers are physically laid -- not the top-left the old code assumed.
+    """
+    path = Path(__file__).resolve().parent.parent / "calibration_markers.json"
+    calibration = json.loads(path.read_text(encoding="utf-8"))
+    corners_by_camera = {
+        camera_id: [camera["calibration_markers"][c]["id"] for c in CORNER_ORDER]
+        for camera_id, camera in calibration.items()
+    }
+    assert corners_by_camera == {
+        "863": ["183", "182", "181", "180"],
+        "104": ["193", "192", "191", "190"],
+    }
+
+
 def test_the_shipped_calibration_file_is_not_mirrored():
     """The calibration this server actually loads must build an unmirrored transform."""
     path = Path(__file__).resolve().parent.parent / "calibration_markers.json"

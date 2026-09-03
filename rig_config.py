@@ -1,17 +1,22 @@
 """Static physical configuration for the two-table camera rig.
 
-What this file must NOT do: state which marker id sits at which corner. It used to, as a
-tidy per-camera block (863 -> 180/181/182/183 clockwise, 104 -> 190/191/192/193), and that
-guess was wrong -- the rig's real, measured layout is interleaved. The legacy flow never
-guessed: `save_calibration_markers._prompt_marker_id` asked the operator, corner by corner,
-which id was physically there. Replacing operator knowledge with an assumed ordering
-produced a calibration whose corner labels were vertically flipped, hence a mirrored
-perspective transform, hence a stitched image ArUco could not decode at all.
+The rig was deliberately re-laid-out so each table owns a contiguous, sequential block of
+marker ids (863 -> 180-183, 104 -> 190-193). That is the whole point of the automatic
+calibration: the operator arranges the markers in a fixed order instead of typing four ids
+per camera into a prompt. This file keeps that arrangement.
 
-So the rig declares only which marker ids belong to which camera -- a fact that is stable
-and cheap to state -- and `assign_corners_by_geometry` recovers the corner roles from where
-the markers are actually seen. That keeps the calibration automatic (no manual id entry)
-without inventing a layout.
+What it must NOT do is state which id lands on which *corner*. It used to -- 180 assumed to
+be top_left, 181 top_right, and so on, i.e. clockwise from the top-left. The markers are in
+fact laid clockwise from the bottom-left, so every corner label came out rotated by 180
+degrees relative to reality. Read in CORNER_ORDER the resulting quad winds anticlockwise,
+`camera_stitching.calculate_perspective_transform` folds that reflection into the
+homography, and the stitched image comes out mirrored -- which ArUco cannot decode at all,
+because its codes are rotation-invariant but not mirror-invariant.
+
+So the rig declares the id block per camera (stable, and the operator's own arrangement)
+and `assign_corners_by_geometry` recovers the corner roles from where the markers are
+actually seen. That keeps the calibration automatic and correct for any starting corner or
+camera mounting, without anyone having to re-derive the ordering by hand.
 """
 
 from typing import Dict, Final, Sequence, Tuple
@@ -23,18 +28,23 @@ TABLE_HEIGHT_CM: Final = 80.0
 MARKER_CENTER_OFFSET_CM: Final = 3.0
 
 # Camera IDs intentionally use the last three digits exposed by camera.poll_frame_data.
-# `marker_ids` is a SET of the four ids each camera can see -- deliberately not a
-# corner->id mapping. Which of them lands at which corner is measured, never assumed.
+# Position is the camera's place in the stitching grid -- a mounting fact, not a marker fact.
 RIG_CAMERAS: Final = {
-    "863": {
-        "position": "top_left",
-        "marker_ids": (180, 182, 192, 193),
-    },
-    "104": {
-        "position": "top_right",
-        "marker_ids": (181, 183, 190, 191),
-    },
+    "863": {"position": "top_left"},
+    "104": {"position": "top_right"},
 }
+
+#: Every id reserved for rig (camera-stitching) calibration, as a flat pool. Deliberately
+#: not split per camera and not mapped to corners: both of those have changed with the
+#: physical layout before (the tables were re-laid from an interleaved arrangement to one
+#: sequential block per table) and hardcoding either is what produced a mirrored
+#: calibration. Each camera claims whichever four of these it can actually see, and
+#: `assign_corners_by_geometry` decides the corners. Any arrangement, any starting corner,
+#: any mounting -- no code change.
+RIG_MARKER_IDS: Final[frozenset] = frozenset(range(180, 184)) | frozenset(range(190, 194))
+
+#: How many rig markers each camera must see before its corners can be assigned.
+MARKERS_PER_CAMERA: Final = 4
 
 
 def marker_physical_positions() -> Dict[str, list]:
