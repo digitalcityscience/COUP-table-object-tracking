@@ -27,8 +27,10 @@ from pixel_to_utm import (
 )
 from table_to_geojson import markers_json_to_geojson
 from physical_building_catalog import (
-    BUILDING_CALIBRATION_FIELDS,
+    BUILDING_CALIBRATION_MESSAGE_FIELDS,
+    MODEL_SCALE,
     apply_building_calibration,
+    calibration_from_message,
     building_feature,
     load_catalog,
     marker_index,
@@ -147,6 +149,9 @@ def markers_to_building_geojson(
         # and the calibration record needs where each measurement was taken; both read this.
         feature["properties"]["table_x_px"] = table_pixel[0]
         feature["properties"]["table_y_px"] = table_pixel[1]
+        # The blocks' own scale, published so the panel can label an offset in table
+        # millimetres without restating 1:500 on the frontend (OD: one source per number).
+        feature["properties"]["model_scale"] = MODEL_SCALE
         features.append(feature)
     return {"type": "FeatureCollection", "features": features}
 
@@ -187,14 +192,12 @@ def _record_building_calibration(payload: dict, peer) -> None:
 
     unknown = sorted(
         set(payload)
-        - set(BUILDING_CALIBRATION_FIELDS)
+        - set(BUILDING_CALIBRATION_MESSAGE_FIELDS)
         - {"type", "version", "building_id", "marker_id"}
     )
     if unknown:
         raise ValueError(f"unknown field(s) {', '.join(unknown)}")
-    calibration = {
-        field: payload[field] for field in BUILDING_CALIBRATION_FIELDS if field in payload
-    }
+    calibration = calibration_from_message(payload)
     if not calibration:
         raise ValueError("message carries no calibration field to apply")
 
@@ -319,8 +322,10 @@ async def handle_web_client(websocket):
         {"type": "map_calibration", "points": [{"pixel_position": [x, y], "utm_position": [x, y]}, ...]}
         {"type": "clear_calibration"}  # drops the current homography; resumes raw marker output
         {"type": "building_calibration", "building_id": "G07", "marker_id": 12,
-         "rotation_offset_deg": ..., "offset_east_m": ..., "offset_north_m": ...,
-         "scale_residual": ...}  # any subset of the four; merged onto what is stored
+         "rotation_offset_deg": ..., "offset_east_mm": ..., "offset_north_mm": ...,
+         "scale_residual": ...}  # any subset of the four; merged onto what is stored.
+        # Offsets are table millimetres in the building's own local frame; the catalog stores
+        # them as real metres (physical_building_catalog.calibration_from_message).
 
     Outgoing tracking messages are sent as GeoJSON once a basemap homography
     is available (i.e. after a map_calibration message has been received),

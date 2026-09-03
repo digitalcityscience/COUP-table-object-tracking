@@ -20,6 +20,7 @@ from physical_building_catalog import (
     DEFAULT_BUILDING_CALIBRATION,
     apply_building_calibration,
     building_calibration_of,
+    calibration_from_message,
     building_feature,
     catalog_entry,
     empty_catalog,
@@ -65,6 +66,36 @@ def test_one_table_millimetre_is_half_a_real_world_metre():
     """The panel's arrow key is 1 px = 1 mm on the table; the catalog stores real metres."""
     assert table_millimetres_to_local_metres(1.0) == pytest.approx(0.5)
     assert table_millimetres_to_local_metres(-10.0) == pytest.approx(-5.0)
+
+
+def test_a_message_is_translated_from_the_operator_s_units_into_the_catalog_s():
+    """The panel speaks table millimetres; the catalog speaks real metres. One conversion point."""
+    translated = calibration_from_message(
+        {
+            "type": "building_calibration",
+            "building_id": "G17",
+            "marker_id": 24,
+            "rotation_offset_deg": -2.5,
+            "offset_east_mm": 0.7,
+            "offset_north_mm": -0.24,
+            "scale_residual": 1.01,
+        }
+    )
+
+    assert translated == {
+        "rotation_offset_deg": pytest.approx(-2.5),
+        "offset_east_m": pytest.approx(0.35),
+        "offset_north_m": pytest.approx(-0.12),
+        "scale_residual": pytest.approx(1.01),
+    }
+
+
+def test_a_message_translates_only_the_fields_it_actually_carries():
+    """A partial save must stay partial all the way through, or the merge is pointless."""
+    assert calibration_from_message({"offset_north_mm": -0.4}) == {
+        "offset_north_m": pytest.approx(-0.2)
+    }
+    assert calibration_from_message({"type": "building_calibration"}) == {}
 
 
 # --- catalog storage --------------------------------------------------------------------

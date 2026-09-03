@@ -200,6 +200,37 @@ def table_millimetres_to_local_metres(millimetres: float) -> float:
     return millimetres / 1000 * MODEL_SCALE
 
 
+#: The `building_calibration` message's fields, and the catalog field each one lands in. The
+#: message speaks the operator's units -- the admin panel nudges in table millimetres, because
+#: that is what an arrow key does and what a ruler on the table reads -- while the catalog stores
+#: real-world metres. Keeping the translation here, rather than on the frontend, is what keeps
+#: `MODEL_SCALE` a Python-only number: the frontend never needs to know the blocks are 1:500.
+BUILDING_CALIBRATION_MESSAGE_FIELDS: dict[str, str] = {
+    "rotation_offset_deg": "rotation_offset_deg",
+    "offset_east_mm": "offset_east_m",
+    "offset_north_mm": "offset_north_m",
+    "scale_residual": "scale_residual",
+}
+
+
+def calibration_from_message(payload: dict[str, Any]) -> dict[str, float]:
+    """The catalog-unit calibration a `building_calibration` message asks for.
+
+    Only the fields the message actually carries, so a save of the one axis the operator touched
+    stays a partial update (see `apply_building_calibration`). Millimetre fields are converted
+    to catalog metres on the way through; degrees and the scale ratio pass straight along.
+    """
+    calibration: dict[str, float] = {}
+    for message_field, catalog_field in BUILDING_CALIBRATION_MESSAGE_FIELDS.items():
+        if message_field not in payload:
+            continue
+        value = float(payload[message_field])
+        calibration[catalog_field] = (
+            table_millimetres_to_local_metres(value) if message_field.endswith("_mm") else value
+        )
+    return calibration
+
+
 def building_calibration_of(building: dict[str, Any]) -> dict[str, float]:
     """One building's calibration, defaulted field by field.
 

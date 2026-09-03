@@ -64,15 +64,15 @@
     "building_calibration": {
       "_produced_by": "collabCalibrationPanel / collabBuildingCalibration.ts::buildBuildingCalibrationMessage",
       "_consumed_by": "server.py::_record_building_calibration",
-      "_note": "Per-building residual, sent when the operator saves a nudge in the admin panel. Any subset of the four calibration fields may be present; the server merges them onto what is already stored, so an untouched axis is never reset. Units are the catalog's own: real-world metres in the BUILDING's local east/north frame (they turn with the block, not with the compass) and degrees. The panel nudges in table millimetres and converts via physical_building_catalog.table_millimetres_to_local_metres (1 mm = 0.5 m at 1:500). No table position and no session id are sent: Python owns pixel space and stamps the measurement with the marker's own latest reading. Refused unless a map_calibration is in force, the marker is in the catalog, building_id agrees with the marker, and the marker has actually been seen on the table.",
+      "_note": "Per-building residual, sent when the operator saves a nudge in the admin panel. Any subset of the four fields may be present; the server merges them onto what is already stored, so an untouched axis is never reset. Units are the OPERATOR's: table millimetres (1 table pixel = 1 mm at 10 px/cm, one arrow-key tick) and degrees. The offsets are expressed in the BUILDING's own local east/north frame, so they turn with the block rather than with the compass. Python converts millimetres to the catalog's real-world metres via physical_building_catalog.calibration_from_message, which is what keeps MODEL_SCALE = 500 a Python-only number. No table position and no session id are sent: Python owns pixel space and stamps the measurement with the marker's own latest reading. Refused unless a map_calibration is in force, the marker is in the catalog, building_id agrees with the marker, and the marker has actually been seen on the table.",
       "type": "building_calibration",
       "version": 2,
       "building_id": "G07",
       "marker_id": 12,
       "rotation_offset_deg": -2.5,
-      "offset_east_m": 0.35,
-      "offset_north_m": -0.12,
-      "scale_residual": 1.01
+      "scale_residual": 1.01,
+      "offset_east_mm": 0.7,
+      "offset_north_mm": -0.24
     }
   },
   "backend_to_frontend": {
@@ -116,7 +116,7 @@
     "building_geojson": {
       "_produced_by": "server.py::markers_to_building_geojson",
       "_consumed_by": "collabTracking.ts::isTrackingFeatureCollection",
-      "_note": "Sent once a basemap homography exists. Only ids present in physical-building-catalog.json become features, so calibration markers 200-203 never appear here. An empty FeatureCollection is still a valid, meaningful message (it proves Python is on the calibrated feed). Each feature's properties carry marker_id, building_id, city_scope_id, center, rotation (detected - marker_reference + rotation_offset_deg), model_scale_factor (the session's global k times the building's scale_residual), bbox, and table_x_px/table_y_px -- where the marker was seen in table-pixel space, which is what lets the admin panel draw its table-coverage diagram.",
+      "_note": "Sent once a basemap homography exists. Only ids present in physical-building-catalog.json become features, so calibration markers 200-203 never appear here. An empty FeatureCollection is still a valid, meaningful message (it proves Python is on the calibrated feed). Each feature's properties carry marker_id, building_id, city_scope_id, center, rotation (detected - marker_reference + rotation_offset_deg), model_scale_factor (the session's global k times the building's scale_residual), bbox, and table_x_px/table_y_px -- where the marker was seen in table-pixel space, which is what lets the admin panel draw its table-coverage diagram. `model_scale` is the blocks' milling scale (500), published so the panel can work in table millimetres without restating it.",
       "type": "FeatureCollection",
       "features": [],
       "example_feature_properties": {
@@ -136,7 +136,8 @@
           53.57006920228844
         ],
         "table_x_px": 700.0,
-        "table_y_px": 400.0
+        "table_y_px": 400.0,
+        "model_scale": 500
       }
     }
   }

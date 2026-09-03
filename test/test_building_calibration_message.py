@@ -14,7 +14,12 @@ import pytest
 
 import server
 from marker import Marker, Markers
-from physical_building_catalog import building_calibration_of, load_catalog, save_catalog
+from physical_building_catalog import (
+    building_calibration_of,
+    load_catalog,
+    save_catalog,
+    table_millimetres_to_local_metres,
+)
 from session_store import SessionStore
 
 websockets = pytest.importorskip("websockets")
@@ -170,11 +175,13 @@ async def test_an_accepted_calibration_reaches_the_working_catalog(rig):
 
     catalog = load_catalog(rig.working_catalog_path)
     (building,) = [b for b in catalog["buildings"] if b["building_id"] == _BUILDING_ID]
+    documented = _calibration_message()
     assert building_calibration_of(building) == {
-        "rotation_offset_deg": pytest.approx(-2.5),
-        "offset_east_m": pytest.approx(0.35),
-        "offset_north_m": pytest.approx(-0.12),
-        "scale_residual": pytest.approx(1.01),
+        "rotation_offset_deg": pytest.approx(documented["rotation_offset_deg"]),
+        # Table millimetres on the wire, catalog metres on disk: 1 mm = 0.5 m at 1:500.
+        "offset_east_m": pytest.approx(table_millimetres_to_local_metres(documented["offset_east_mm"])),
+        "offset_north_m": pytest.approx(table_millimetres_to_local_metres(documented["offset_north_mm"])),
+        "scale_residual": pytest.approx(documented["scale_residual"]),
     }
 
 
@@ -237,16 +244,19 @@ async def test_a_second_save_merges_onto_the_first(rig):
                 "version": 2,
                 "building_id": _BUILDING_ID,
                 "marker_id": _MARKER_ID,
-                "offset_north_m": -0.20,
+                "offset_north_mm": -0.40,
             }
         )
 
+    documented = _calibration_message()
     catalog = load_catalog(rig.working_catalog_path)
     (building,) = [b for b in catalog["buildings"] if b["building_id"] == _BUILDING_ID]
     stored = building_calibration_of(building)
-    assert stored["offset_north_m"] == pytest.approx(-0.20)
-    assert stored["rotation_offset_deg"] == pytest.approx(-2.5)
-    assert stored["offset_east_m"] == pytest.approx(0.35)
+    assert stored["offset_north_m"] == pytest.approx(table_millimetres_to_local_metres(-0.40))
+    assert stored["rotation_offset_deg"] == pytest.approx(documented["rotation_offset_deg"])
+    assert stored["offset_east_m"] == pytest.approx(
+        table_millimetres_to_local_metres(documented["offset_east_mm"])
+    )
 
 
 # --- refusing a calibration --------------------------------------------------------------
@@ -292,7 +302,7 @@ async def test_a_calibration_with_an_unknown_field_is_refused_whole(rig):
     """Partial application would leave the catalog in a state the operator never chose."""
     async with _Session() as session:
         await _calibrated_session(session)
-        await session.send(_calibration_message(offset_up_m=1.0))
+        await session.send(_calibration_message(offset_up_mm=1.0))
 
     catalog = load_catalog(rig.working_catalog_path)
     (building,) = [b for b in catalog["buildings"] if b["building_id"] == _BUILDING_ID]
