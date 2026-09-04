@@ -161,6 +161,24 @@ def axis_metres_per_table_pixel(
     )
 
 
+def project_utm_to_pixels(homography: BasemapHomography, utm_positions: np.ndarray) -> np.ndarray:
+    """The inverse of `project_pixels_to_utm`: UTM back to table pixels.
+
+    Needed because registration has to answer "which marker is on the target?", and the target is
+    a geographic position while marker sightings are table pixels. Comparing them in pixels keeps
+    the tolerance in the unit the question is actually about -- one table pixel is one millimetre,
+    so "within 10 cm of the target" is a number anyone can check against a physical block.
+    """
+    if len(utm_positions) == 0:
+        return np.empty((0, 2), dtype=np.float64)
+    inverse = np.linalg.inv(homography.matrix)
+    local = np.asarray(utm_positions, dtype=np.float64) - np.asarray(
+        homography.utm_offset, dtype=np.float64
+    )
+    projected = cv2.perspectiveTransform(local.reshape(-1, 1, 2), inverse)
+    return projected.reshape(-1, 2)
+
+
 def metres_per_table_pixel(
     homography: BasemapHomography, at_pixel: tuple[float, float]
 ) -> float:

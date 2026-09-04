@@ -97,6 +97,49 @@ def reference_rotation_from_samples(samples: Iterable[float]) -> float:
     return circular_mean_degrees(values)
 
 
+#: How far from the alignment target a marker may sit and still be the one being registered, in
+#: table pixels (one pixel is one millimetre).
+#:
+#: A 1:500 block is 4-9 cm across, so 12 cm comfortably covers a block laid on the target by hand
+#: -- including the gap between the marker's centre and the block's own centre -- while excluding
+#: anything sitting somewhere else on the table.
+TARGET_PROXIMITY_PX = 120.0
+
+
+def marker_on_target(
+    marker_pixels: Mapping[int, tuple[float, float]],
+    target_pixel: tuple[float, float],
+    proximity_px: float = TARGET_PROXIMITY_PX,
+) -> int:
+    """Which marker is sitting on the alignment target.
+
+    This is the question registration actually has to answer, and the operator has already
+    answered it physically by putting the block on the projected footprint. Reading it off the
+    position rather than by elimination is what makes everything else on the table irrelevant:
+    other blocks, and the spurious ArUco reads a noisy frame produces, are simply not on the
+    target. Elimination made every one of them a reason to refuse -- including phantoms the
+    operator cannot remove, because they were never there.
+    """
+    target_x, target_y = float(target_pixel[0]), float(target_pixel[1])
+    distances = {
+        marker_id: math.hypot(float(x) - target_x, float(y) - target_y)
+        for marker_id, (x, y) in marker_pixels.items()
+    }
+    near = {marker_id: d for marker_id, d in distances.items() if d <= proximity_px}
+    if not near:
+        closest = min(distances.items(), key=lambda item: item[1], default=None)
+        if closest is None:
+            raise ValueError(
+                "no marker is on the table at all. Put the block on the projected target and "
+                "confirm again"
+            )
+        raise ValueError(
+            f"no marker is on the target; the nearest (marker {closest[0]}) is "
+            f"{closest[1] / 10:.1f} cm away. Put the block on the projected outline and confirm again"
+        )
+    return min(near.items(), key=lambda item: item[1])[0]
+
+
 def marker_to_register(
     catalog: Mapping[str, Any],
     building_id: str,

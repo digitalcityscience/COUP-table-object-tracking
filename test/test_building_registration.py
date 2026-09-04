@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from building_registration import (
     MAXIMUM_REFERENCE_SPREAD_DEG,
+    marker_on_target,
     MINIMUM_REFERENCE_SAMPLES,
     angular_spread_degrees,
     catalog_with_entry,
@@ -215,3 +216,59 @@ def test_registering_does_not_mutate_the_catalog_it_was_given():
     catalog_with_entry(catalog, registered_entry(_feature(), 99, -116.25))
 
     assert catalog["buildings"][0]["marker_ids"] == [18]
+
+
+# --- which block is this? the operator already answered, physically ----------------------
+
+
+def test_the_marker_on_the_target_is_the_one_being_registered():
+    """Position answers it, so nothing else on the table has to be moved or explained."""
+    on_table = {18: (700.0, 400.0), 24: (1300.0, 200.0), 12: (200.0, 650.0)}
+
+    assert marker_on_target(on_table, (705.0, 395.0)) == 18
+
+
+def test_phantom_reads_elsewhere_on_the_table_are_simply_not_on_the_target():
+    """The refusal this replaces: `markers [18, 85, 182, 190] are all unclaimed`.
+
+    A noisy frame produces spurious ArUco ids at arbitrary places. Under elimination every one of
+    them was a reason to refuse, and the advice -- "leave only the block being registered on the
+    table" -- was impossible to follow, because the operator cannot remove something that was
+    never there.
+    """
+    on_table = {18: (700.0, 400.0), 85: (120.0, 90.0), 182: (1500.0, 700.0), 190: (400.0, 750.0)}
+
+    assert marker_on_target(on_table, (700.0, 400.0)) == 18
+
+
+def test_another_building_already_on_the_table_does_not_interfere():
+    """Registering G11 while G07 sits at the other end is an ordinary thing to want to do."""
+    on_table = {18: (700.0, 400.0), 12: (760.0, 400.0)}
+
+    assert marker_on_target(on_table, (700.0, 400.0)) == 18
+
+
+def test_the_nearest_marker_wins_when_two_are_close():
+    on_table = {18: (700.0, 400.0), 24: (760.0, 400.0)}
+
+    assert marker_on_target(on_table, (740.0, 400.0)) == 24
+
+
+def test_a_block_that_is_not_on_the_target_is_refused_with_the_distance():
+    """Told in centimetres, because that is what the operator can act on at the table."""
+    on_table = {18: (1200.0, 400.0)}
+
+    with pytest.raises(ValueError, match="50.0 cm"):
+        marker_on_target(on_table, (700.0, 400.0))
+
+
+def test_an_empty_table_says_so_rather_than_reporting_a_distance():
+    with pytest.raises(ValueError, match="no marker is on the table"):
+        marker_on_target({}, (700.0, 400.0))
+
+
+def test_the_proximity_window_covers_a_block_laid_down_by_hand():
+    """A 1:500 block is 4-9 cm across; the marker's centre is not the block's centre."""
+    on_table = {18: (700.0 + 90.0, 400.0)}
+
+    assert marker_on_target(on_table, (700.0, 400.0)) == 18

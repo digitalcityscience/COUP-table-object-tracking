@@ -15,6 +15,9 @@ from datetime import datetime
 from functools import partial
 from pathlib import Path
 
+import numpy as np
+from pyproj import Transformer
+
 from marker import Markers, map_detected_markers
 from time import time_ns
 from detection import detect_markers
@@ -28,6 +31,7 @@ from pixel_to_utm import (
     create_basemap_homography,
     direction_through_homography,
     ground_scale,
+    project_utm_to_pixels,
 )
 from table_to_geojson import markers_json_to_geojson
 from physical_building_catalog import (
@@ -42,8 +46,10 @@ from physical_building_catalog import (
     model_scale_factor,
     save_catalog,
 )
+from building_registration import MINIMUM_REFERENCE_SAMPLES
 from building_registration import (
     catalog_with_entry,
+    marker_on_target,
     marker_to_register,
     reference_rotation_from_samples,
     registered_entry,
@@ -51,6 +57,10 @@ from building_registration import (
 from calibration_contract import MAP_CALIBRATION_MARKER_IDS
 from marker import IGNORED_MARKER_ID
 from session_store import BuildingCalibration, SessionStore
+
+#: WGS84 -> UTM 32N, for turning the frontend's alignment-target position into the frame the
+#: homography speaks. Built once: constructing a Transformer parses CRS definitions.
+_WGS84_TO_UTM = Transformer.from_crs("EPSG:4326", "EPSG:25832", always_xy=True)
 import websockets
 
 # Windows consoles default to a non-UTF-8 codepage (e.g. cp1252), which
@@ -144,6 +154,14 @@ SOURCE_BUILDINGS_PATH = os.path.join(_SCRIPT_DIR, "building_catalog", "buildings
 REFERENCE_ROTATION_BUFFER = 30
 recent_marker_rotations: dict[int, deque] = defaultdict(lambda: deque(maxlen=REFERENCE_ROTATION_BUFFER))
 
+#: Where every marker was last seen in table pixels, catalogued or not.
+#:
+#: `latest_table_pixel_positions` above deliberately holds only *catalogued* markers, because it
+#: exists to file a calibration measurement against a known building. Registration needs the
+#: opposite: the block it is about has no catalog entry yet, and the whole point is to find it by
+#: where it is sitting.
+latest_marker_pixels: dict[int, tuple[float, float]] = {}
+
 # How stale a marker's last table-pixel reading may be before a measurement will not be filed
 # against it. Snapshots arrive every 200 ms, so a couple of seconds is many frames of grace for a
 # briefly occluded marker while still refusing a block that has left the table.
@@ -229,10 +247,12 @@ def _remember_marker_rotations(snapshot: dict) -> None:
     for raw_marker_id, position in snapshot.items():
         try:
             marker_id = int(raw_marker_id)
+            pixel_x, pixel_y = float(position[0]), float(position[1])
             rotation = float(position[2])
         except (TypeError, ValueError, IndexError):
             continue
         recent_marker_rotations[marker_id].append(rotation)
+        latest_marker_pixels[marker_id] = (pixel_x, pixel_y)
 
 
 def _register_building(payload: dict, peer) -> dict:
@@ -266,8 +286,33 @@ def _register_building(payload: dict, peer) -> dict:
 
     working_path = Path(WORKING_BUILDING_CATALOG_PATH)
     working_catalog = load_catalog(working_path)
-    seen = [marker_id for marker_id, readings in recent_marker_rotations.items() if readings]
-    marker_id = marker_to_register(working_catalog, building_id, seen, RESERVED_MARKER_IDS)
+
+    # Only markers seen often enough to be a real object. A spurious ArUco read from one noisy
+    # frame is indistinguishable from a block by id alone, and a table with three phantoms on it
+    # used to be a table nothing could be registered on -- the operator cannot remove something
+    # that was never there.
+    steady = {
+        marker_id: latest_marker_pixels[marker_id]
+        for marker_id, readings in recent_marker_rotations.items()
+        if len(readings) >= MINIMUM_REFERENCE_SAMPLES
+        and marker_id in latest_marker_pixels
+        and marker_id not in RESERVED_MARKER_IDS
+    }
+
+    target = payload.get("target")
+    if target is not None and basemap_homography is not None:
+        # The operator has already answered "which block is this?" physically, by putting it on
+        # the projected target. Reading it off position is what makes every other object on the
+        # table irrelevant, rather than a reason to refuse.
+        easting, northing = _WGS84_TO_UTM.transform(float(target[0]), float(target[1]))
+        (target_pixel,) = project_utm_to_pixels(
+            basemap_homography, np.array([[easting, northing]], dtype=np.float64)
+        )
+        marker_id = marker_on_target(steady, (float(target_pixel[0]), float(target_pixel[1])))
+    else:
+        marker_id = marker_to_register(
+            working_catalog, building_id, sorted(steady), RESERVED_MARKER_IDS
+        )
     reference_rotation = reference_rotation_from_samples(recent_marker_rotations[marker_id])
 
     entry = registered_entry(matches[0], marker_id, reference_rotation)
@@ -480,7 +525,7 @@ async def handle_web_client(websocket):
     Expected incoming message schema:
         {"type": "map_calibration", "points": [{"pixel_position": [x, y], "utm_position": [x, y]}, ...]}
         {"type": "clear_calibration"}  # drops the current homography; resumes raw marker output
-        {"type": "register_building", "building_id": "G11"}
+        {"type": "register_building", "building_id": "G11", "target": [lng, lat]}
          # Sent when the operator has turned the block PARALLEL to its own footprint, which the
          # frontend projects on the table at the building's real heading. Carries no marker id:
          # a building being registered for the first time has no catalog entry, so there is none
