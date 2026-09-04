@@ -46,11 +46,14 @@ from physical_building_catalog import (
     model_scale_factor,
     save_catalog,
 )
-from building_registration import MINIMUM_REFERENCE_SAMPLES
+from building_registration import MINIMUM_REFERENCE_SAMPLES, SIGHTING_WINDOW_SECONDS
 from building_registration import (
     catalog_with_entry,
     marker_on_target,
     marker_to_register,
+    markers_on_the_table,
+    named_marker,
+    recent_rotations,
     reference_rotation_from_samples,
     registered_entry,
 )
@@ -145,22 +148,29 @@ RESERVED_MARKER_IDS = set(MAP_CALIBRATION_MARKER_IDS) | {IGNORED_MARKER_ID}
 #: against and the heading written into the catalog are the same number by construction.
 SOURCE_BUILDINGS_PATH = os.path.join(_SCRIPT_DIR, "building_catalog", "buildings_all.geojson")
 
-#: Recent heading readings per marker, newest last, for registration's circular mean.
+#: Recent `(seen_at, heading)` readings per marker, newest last, for registration's circular mean.
 #:
 #: A buffer rather than the latest single frame because one frame of ArUco corner detection
 #: carries a degree or more of noise and the reference is a *permanent* constant -- baking a
 #: single noisy frame into the catalog is exactly the kind of quiet, unfalsifiable error this
 #: flow exists to end. Snapshots arrive every 200 ms, so this holds about six seconds.
+#:
+#: Each reading carries when it was taken. Without that the buffer answered "has this marker ever
+#: been seen thirty times?" instead of "is this block sitting here now?", and the two diverge the
+#: moment a block leaves the table -- see `building_registration.SIGHTING_WINDOW_SECONDS`.
 REFERENCE_ROTATION_BUFFER = 30
 recent_marker_rotations: dict[int, deque] = defaultdict(lambda: deque(maxlen=REFERENCE_ROTATION_BUFFER))
 
-#: Where every marker was last seen in table pixels, catalogued or not.
+#: Where every marker was last seen in table pixels and when, catalogued or not: `(x, y, seen_at)`.
 #:
 #: `latest_table_pixel_positions` above deliberately holds only *catalogued* markers, because it
 #: exists to file a calibration measurement against a known building. Registration needs the
 #: opposite: the block it is about has no catalog entry yet, and the whole point is to find it by
 #: where it is sitting.
-latest_marker_pixels: dict[int, tuple[float, float]] = {}
+#:
+#: The timestamp is not decoration. This dict is never pruned, so without it a marker seen once,
+#: minutes ago, stayed a live registration candidate at a pixel it had long since left.
+latest_marker_pixels: dict[int, tuple[float, float, float]] = {}
 
 # How stale a marker's last table-pixel reading may be before a measurement will not be filed
 # against it. Snapshots arrive every 200 ms, so a couple of seconds is many frames of grace for a
@@ -251,8 +261,40 @@ def _remember_marker_rotations(snapshot: dict) -> None:
             rotation = float(position[2])
         except (TypeError, ValueError, IndexError):
             continue
-        recent_marker_rotations[marker_id].append(rotation)
-        latest_marker_pixels[marker_id] = (pixel_x, pixel_y)
+        seen_at = time.time()
+        recent_marker_rotations[marker_id].append((seen_at, rotation))
+        latest_marker_pixels[marker_id] = (pixel_x, pixel_y, seen_at)
+
+
+def _markers_on_table_message() -> dict:
+    """Which markers the cameras can see right now, and which building each already speaks for.
+
+    Published every cycle because the registration panel cannot derive it: the building feed
+    carries only *catalogued* markers, so the one marker registration is actually about -- the
+    unclaimed block in the operator's hand -- is precisely the one the frontend never hears
+    about. Without this the operator has no way to name an id, and no way to tell an unseen
+    block from a mis-aimed target.
+
+    `building_id` is null for an unclaimed marker. A marker that already belongs to the building
+    being registered is not excluded: re-registering is how a bad reference gets fixed.
+    """
+    on_table = markers_on_the_table(
+        latest_marker_pixels,
+        recent_marker_rotations,
+        now=time.time(),
+        reserved_ids=RESERVED_MARKER_IDS,
+    )
+    owners = physical_buildings_by_marker
+    return {
+        "type": "markers_on_table",
+        "markers": [
+            {
+                "marker_id": marker_id,
+                "building_id": (owners.get(marker_id) or {}).get("building_id"),
+            }
+            for marker_id in sorted(on_table)
+        ],
+    }
 
 
 def _register_building(payload: dict, peer) -> dict:
@@ -287,20 +329,30 @@ def _register_building(payload: dict, peer) -> dict:
     working_path = Path(WORKING_BUILDING_CATALOG_PATH)
     working_catalog = load_catalog(working_path)
 
-    # Only markers seen often enough to be a real object. A spurious ArUco read from one noisy
-    # frame is indistinguishable from a block by id alone, and a table with three phantoms on it
-    # used to be a table nothing could be registered on -- the operator cannot remove something
-    # that was never there.
-    steady = {
-        marker_id: latest_marker_pixels[marker_id]
-        for marker_id, readings in recent_marker_rotations.items()
-        if len(readings) >= MINIMUM_REFERENCE_SAMPLES
-        and marker_id in latest_marker_pixels
-        and marker_id not in RESERVED_MARKER_IDS
-    }
+    # What is on the table *now* -- not what has ever been seen. Both halves matter: enough
+    # readings that a single noisy ArUco frame cannot pass as a block, and all of them recent
+    # enough that they describe the table rather than the process's memory of it.
+    now = time.time()
+    steady = markers_on_the_table(
+        latest_marker_pixels,
+        recent_marker_rotations,
+        now=now,
+        reserved_ids=RESERVED_MARKER_IDS,
+    )
 
+    named = payload.get("marker_id")
     target = payload.get("target")
-    if target is not None and basemap_homography is not None:
+    if named is not None:
+        # The operator naming the id outright. Deterministic, and the only path that does not
+        # depend on the AOI-centre -> projector -> table -> camera -> pixel chain agreeing.
+        try:
+            named = int(named)
+        except (TypeError, ValueError):
+            raise ValueError(f"marker_id {named!r} is not a number") from None
+        if named in RESERVED_MARKER_IDS:
+            raise ValueError(f"marker {named} is a calibration marker and cannot be a building")
+        marker_id = named_marker(working_catalog, building_id, named, steady)
+    elif target is not None and basemap_homography is not None:
         # The operator has already answered "which block is this?" physically, by putting it on
         # the projected target. Reading it off position is what makes every other object on the
         # table irrelevant, rather than a reason to refuse.
@@ -308,12 +360,28 @@ def _register_building(payload: dict, peer) -> dict:
         (target_pixel,) = project_utm_to_pixels(
             basemap_homography, np.array([[easting, northing]], dtype=np.float64)
         )
+        # The refusal below is the only window onto why a registration failed, and on the
+        # 2026-09-04 rig it was too narrow to diagnose anything. Record what the server was
+        # actually looking at, so one attempt at the table settles it.
+        calibration_logger.info(
+            "REGISTRATION SIGHTING from %s | building=%s | target_lnglat=%s | "
+            "target_pixel=(%.1f, %.1f) | on_table=%s | seen_but_stale=%s",
+            peer,
+            building_id,
+            list(target),
+            float(target_pixel[0]),
+            float(target_pixel[1]),
+            {mid: (round(x, 1), round(y, 1)) for mid, (x, y) in sorted(steady.items())},
+            sorted(set(latest_marker_pixels) - set(steady) - RESERVED_MARKER_IDS),
+        )
         marker_id = marker_on_target(steady, (float(target_pixel[0]), float(target_pixel[1])))
     else:
         marker_id = marker_to_register(
             working_catalog, building_id, sorted(steady), RESERVED_MARKER_IDS
         )
-    reference_rotation = reference_rotation_from_samples(recent_marker_rotations[marker_id])
+    reference_rotation = reference_rotation_from_samples(
+        recent_rotations(recent_marker_rotations[marker_id], now=now)
+    )
 
     entry = registered_entry(matches[0], marker_id, reference_rotation)
     save_catalog(working_path, catalog_with_entry(working_catalog, entry))
@@ -707,6 +775,7 @@ async def handle_web_client(websocket):
 
             print("Sending to web client:", markers_json)
             await websocket.send(markers_json)
+            await websocket.send(json.dumps(_markers_on_table_message()))
 
         await stream_tracking_updates(send)  # 200ms interval between updates
 

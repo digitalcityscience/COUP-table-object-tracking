@@ -20,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from building_registration import (
     MAXIMUM_REFERENCE_SPREAD_DEG,
     marker_on_target,
+    markers_on_the_table,
+    named_marker,
     MINIMUM_REFERENCE_SAMPLES,
     angular_spread_degrees,
     catalog_with_entry,
@@ -272,3 +274,144 @@ def test_the_proximity_window_covers_a_block_laid_down_by_hand():
     on_table = {18: (700.0 + 90.0, 400.0)}
 
     assert marker_on_target(on_table, (700.0, 400.0)) == 18
+
+
+# --- what is on the table *now* ----------------------------------------------------------
+#
+# The bug these pin down (2026-09-04 rig): registration compared the target against memories
+# rather than against the table. `latest_marker_pixels` carried no timestamp and was never
+# expired, so a marker seen ten times at any point since the process started stayed a candidate
+# forever, at wherever it had last been seen. An operator with the block dead centre on the
+# turquoise was told "the nearest (marker 182) is 37.4 cm away" and could do nothing about it,
+# because 182 was not on the table to be moved.
+
+
+def _sighting(x, y, age_seconds, now=1000.0):
+    return (x, y, now - age_seconds)
+
+
+def _timed_samples(count, age_seconds, rotation=-116.25, now=1000.0):
+    return [(now - age_seconds, rotation) for _ in range(count)]
+
+
+def test_a_marker_last_seen_minutes_ago_is_not_on_the_table():
+    """The ghost that made the 2026-09-04 rig session unregisterable."""
+    on_table = markers_on_the_table(
+        {182: _sighting(500.0, 400.0, age_seconds=300.0)},
+        {182: _timed_samples(30, age_seconds=300.0)},
+        now=1000.0,
+    )
+
+    assert on_table == {}
+
+
+def test_a_ghost_sitting_exactly_on_the_target_does_not_get_registered_instead():
+    """The quiet half of the bug, and the worse half.
+
+    A block that used to sit on the target leaves its last pixel behind forever. The operator
+    puts the *right* block down a few centimetres off, and the memory -- being dead centre --
+    wins the proximity contest. Nothing refuses, nothing warns: the catalog gets marker 182's
+    heading filed as G11's true-north reference, which is precisely the silent constant error
+    this whole flow exists to end.
+    """
+    on_table = markers_on_the_table(
+        {
+            18: _sighting(870.0, 400.0, age_seconds=0.4),
+            182: _sighting(820.7, 399.9, age_seconds=300.0),
+        },
+        {
+            18: _timed_samples(12, age_seconds=0.4),
+            182: _timed_samples(30, age_seconds=300.0),
+        },
+        now=1000.0,
+    )
+
+    assert marker_on_target(on_table, (820.7, 399.9)) == 18
+
+
+def test_a_marker_seen_now_but_only_a_few_times_is_not_steady_enough():
+    """Under the sample floor there is no averaging left to beat corner noise."""
+    on_table = markers_on_the_table(
+        {18: _sighting(820.0, 400.0, age_seconds=0.2)},
+        {18: _timed_samples(MINIMUM_REFERENCE_SAMPLES - 1, age_seconds=0.2)},
+        now=1000.0,
+    )
+
+    assert on_table == {}
+
+
+def test_readings_that_have_aged_out_do_not_count_towards_the_sample_floor():
+    """Ten readings from five minutes ago are not two seconds of the block sitting still."""
+    stale = _timed_samples(MINIMUM_REFERENCE_SAMPLES, age_seconds=300.0)
+    fresh = _timed_samples(2, age_seconds=0.2)
+
+    on_table = markers_on_the_table(
+        {18: _sighting(820.0, 400.0, age_seconds=0.2)},
+        {18: stale + fresh},
+        now=1000.0,
+    )
+
+    assert on_table == {}
+
+
+def test_calibration_markers_are_never_candidates():
+    on_table = markers_on_the_table(
+        {200: _sighting(820.0, 400.0, age_seconds=0.2)},
+        {200: _timed_samples(30, age_seconds=0.2)},
+        now=1000.0,
+        reserved_ids={200},
+    )
+
+    assert on_table == {}
+
+
+def test_the_refusal_names_every_marker_it_could_see_and_how_far_off_it_was():
+    """A refusal the operator cannot act on is the failure, not the diagnosis.
+
+    "the nearest (marker 182) is 37.4 cm away" is unactionable twice over: it does not say what
+    else was on the table, and it does not say the block the operator is holding was not seen at
+    all -- which is the thing they would have to fix.
+    """
+    on_table = {182: (1200.0, 400.0), 24: (700.0, 900.0)}
+
+    with pytest.raises(ValueError) as refusal:
+        marker_on_target(on_table, (700.0, 400.0))
+
+    assert "182" in str(refusal.value) and "50.0 cm" in str(refusal.value)
+    assert "24" in str(refusal.value)
+
+
+def test_an_empty_table_says_nothing_was_seen_rather_than_reporting_a_distance():
+    with pytest.raises(ValueError, match="no marker is on the table"):
+        marker_on_target({}, (700.0, 400.0))
+
+
+# --- the operator naming the marker outright --------------------------------------------
+#
+# Proximity depends on a chain nothing can check from inside the code: AOI centre -> projector
+# -> physical table -> camera -> stitched pixel. When any link is off, the refusal is the same
+# and there is nothing to do about it. Naming the id closes the loop deterministically.
+
+
+def test_a_named_marker_that_is_on_the_table_is_simply_used():
+    assert named_marker(empty_catalog(), "G11", 18, {18: (820.0, 400.0)}) == 18
+
+
+def test_naming_the_marker_a_building_already_owns_is_how_it_gets_re_registered():
+    """A re-glued or mis-registered block: the operator fixes it by registering it again."""
+    catalog = _catalog_with(catalog_entry(_feature(), [18], {18: -116.25}))
+
+    assert named_marker(catalog, "G11", 18, {18: (820.0, 400.0)}) == 18
+
+
+def test_naming_a_marker_another_building_owns_is_refused_by_name():
+    catalog = _catalog_with(catalog_entry(_feature("G07", "B-07"), [12], {12: 5.0}))
+
+    with pytest.raises(ValueError, match="G07"):
+        named_marker(catalog, "G11", 12, {12: (820.0, 400.0)})
+
+
+def test_naming_a_marker_that_is_not_on_the_table_is_refused():
+    """Otherwise the reference would be averaged out of readings of something long gone."""
+    with pytest.raises(ValueError, match="not on the table"):
+        named_marker(empty_catalog(), "G11", 18, {24: (820.0, 400.0)})

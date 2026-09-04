@@ -105,6 +105,110 @@ def reference_rotation_from_samples(samples: Iterable[float]) -> float:
 #: anything sitting somewhere else on the table.
 TARGET_PROXIMITY_PX = 120.0
 
+#: How long a marker sighting stays evidence that the block is *there*, in seconds.
+#:
+#: Registration used to compare the target against memories rather than against the table:
+#: `server.latest_marker_pixels` carried no timestamp and was never expired, so a marker seen ten
+#: times at any point since the process started stayed a candidate forever, at whatever pixel it
+#: had last been read at. On the 2026-09-04 rig that produced a refusal nobody could act on --
+#: "the nearest (marker 182) is 37.4 cm away" -- because 182 was not on the table to be moved,
+#: while the block actually sitting on the turquoise had gone unseen (hands over it, and the
+#: projected outline washing out its contrast) and so was still remembered where it used to lie.
+#:
+#: Six seconds because that is exactly the span of `server.REFERENCE_ROTATION_BUFFER`: thirty
+#: readings at one per 200 ms. Tying the window to the buffer means the sample floor and the
+#: freshness rule are asking about the same stretch of time rather than two unrelated ones, and
+#: it leaves an operator leaning over the table two thirds of the frames' worth of occlusion
+#: before the block stops counting as present.
+SIGHTING_WINDOW_SECONDS = 6.0
+
+
+def recent_rotations(
+    samples: Iterable[tuple[float, float]],
+    *,
+    now: float,
+    window_seconds: float = SIGHTING_WINDOW_SECONDS,
+) -> list[float]:
+    """The headings among `(seen_at, rotation)` samples that were read inside the window.
+
+    Ten readings from five minutes ago are not "two seconds of the block sitting still", which is
+    the only thing `MINIMUM_REFERENCE_SAMPLES` was ever meant to certify. Without this the floor
+    counted a marker's whole history, so a block that had been on the table once cleared it
+    forever after.
+    """
+    return [rotation for seen_at, rotation in samples if now - seen_at <= window_seconds]
+
+
+def markers_on_the_table(
+    sightings: Mapping[int, tuple[float, float, float]],
+    rotation_samples: Mapping[int, Iterable[tuple[float, float]]],
+    *,
+    now: float,
+    reserved_ids: Iterable[int] = (),
+    window_seconds: float = SIGHTING_WINDOW_SECONDS,
+    minimum_samples: int = MINIMUM_REFERENCE_SAMPLES,
+) -> dict[int, tuple[float, float]]:
+    """Where each marker that is on the table *right now* is, in table pixels.
+
+    `sightings` maps a marker to `(x, y, seen_at)` and `rotation_samples` to its recent
+    `(seen_at, rotation)` readings. A marker qualifies only if it was seen inside the window and
+    enough of its readings fall inside it too -- the first rule is what makes this a statement
+    about the table rather than about the process's memory, and the second is what keeps a
+    single noisy frame from being averaged into a permanent catalog constant.
+    """
+    reserved = set(reserved_ids)
+    on_table = {}
+    for marker_id, sighting in sightings.items():
+        if marker_id in reserved:
+            continue
+        x, y, seen_at = sighting
+        if now - seen_at > window_seconds:
+            continue
+        fresh = recent_rotations(
+            rotation_samples.get(marker_id, ()), now=now, window_seconds=window_seconds
+        )
+        if len(fresh) < minimum_samples:
+            continue
+        on_table[marker_id] = (float(x), float(y))
+    return on_table
+
+
+def named_marker(
+    catalog: Mapping[str, Any],
+    building_id: str,
+    marker_id: int,
+    on_table: Mapping[int, tuple[float, float]],
+) -> int:
+    """The marker the operator named, checked against the table and the catalog.
+
+    Proximity infers which block this is from a chain nothing inside this process can verify --
+    AOI centre, projector, physical table, camera, stitched pixel -- and when any link is off the
+    refusal is identical and there is nothing the operator can do about it. Naming the id closes
+    that loop: the only things left to check are that the block is actually on the table, and
+    that the marker is not already speaking for a different building.
+
+    A marker this same building already owns is not a conflict, it is the point: a block that was
+    re-glued, or registered against a bad reference, is fixed by registering it again.
+    """
+    marker_id = int(marker_id)
+    if marker_id not in on_table:
+        raise ValueError(
+            f"marker {marker_id} is not on the table -- "
+            + (
+                f"the markers being seen are {sorted(on_table)}"
+                if on_table
+                else "no marker is being seen at all"
+            )
+            + ". Put the block in view of the cameras and confirm again"
+        )
+    owner = marker_index(dict(catalog)).get(marker_id)
+    if owner is not None and owner["building_id"] != building_id:
+        raise ValueError(
+            f"marker {marker_id} already belongs to {owner['building_id']}, not {building_id}. "
+            f"Pick {building_id}'s own block, or re-register {owner['building_id']} first"
+        )
+    return marker_id
+
 
 def marker_on_target(
     marker_pixels: Mapping[int, tuple[float, float]],
@@ -127,15 +231,23 @@ def marker_on_target(
     }
     near = {marker_id: d for marker_id, d in distances.items() if d <= proximity_px}
     if not near:
-        closest = min(distances.items(), key=lambda item: item[1], default=None)
-        if closest is None:
+        if not distances:
             raise ValueError(
                 "no marker is on the table at all. Put the block on the projected target and "
-                "confirm again"
+                "confirm again, or name its marker id in the panel"
             )
+        # Every marker and its distance, not just the nearest. "The nearest is 37.4 cm away" is
+        # unactionable twice over: it hides what else the cameras were seeing, and it cannot say
+        # the thing the operator most needs to hear -- that the block in their hands is not in
+        # the list at all, so moving it will never help.
+        seen = ", ".join(
+            f"marker {marker_id} at {distance / 10:.1f} cm"
+            for marker_id, distance in sorted(distances.items(), key=lambda item: item[1])
+        )
         raise ValueError(
-            f"no marker is on the target; the nearest (marker {closest[0]}) is "
-            f"{closest[1] / 10:.1f} cm away. Put the block on the projected outline and confirm again"
+            f"no marker is within {proximity_px / 10:.0f} cm of the target. On the table now: "
+            f"{seen}. Put the block on the projected outline and confirm again -- or, if the "
+            "block's own marker is not in that list, name its id in the panel instead"
         )
     return min(near.items(), key=lambda item: item[1])[0]
 
