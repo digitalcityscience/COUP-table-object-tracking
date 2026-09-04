@@ -49,6 +49,7 @@ from physical_building_catalog import (
 from building_registration import MINIMUM_REFERENCE_SAMPLES, SIGHTING_WINDOW_SECONDS
 from building_registration import (
     catalog_with_entry,
+    marker_near_target,
     marker_on_target,
     marker_to_register,
     markers_on_the_table,
@@ -266,6 +267,50 @@ def _remember_marker_rotations(snapshot: dict) -> None:
         latest_marker_pixels[marker_id] = (pixel_x, pixel_y, seen_at)
 
 
+#: The scan the operator has started, or None. `{"building_id", "target_pixel"}`.
+#:
+#: Registration used to be one blind shot: press confirm and find out. The operator has no way to
+#: see whether the cameras have actually picked the block out from where they are standing, so a
+#: refusal was the first news that anything was wrong. This holds the question -- "is the block on
+#: G11's outline being read?" -- so the server can answer it every cycle instead of once.
+active_scan: dict | None = None
+
+
+def _scan_progress_message() -> dict | None:
+    """How the current scan is doing, or None when no scan is running.
+
+    Reports the marker on the outline and how many readings of it have landed inside the sighting
+    window, so the panel can unlock Register exactly when the reference average would accept the
+    sample set -- never before, which is what made the old flow a guess.
+    """
+    if active_scan is None:
+        return None
+    now = time.time()
+    # A floor of one, not `MINIMUM_REFERENCE_SAMPLES`: this is the progress bar, so it has to be
+    # able to see the block at reading one and count up. The gate is `ready` below.
+    on_table = markers_on_the_table(
+        latest_marker_pixels,
+        recent_marker_rotations,
+        now=now,
+        reserved_ids=RESERVED_MARKER_IDS,
+        minimum_samples=1,
+    )
+    marker_id = marker_near_target(on_table, active_scan["target_pixel"])
+    readings = (
+        0
+        if marker_id is None
+        else len(recent_rotations(recent_marker_rotations[marker_id], now=now))
+    )
+    return {
+        "type": "scan_progress",
+        "building_id": active_scan["building_id"],
+        "marker_id": marker_id,
+        "readings": readings,
+        "required": MINIMUM_REFERENCE_SAMPLES,
+        "ready": marker_id is not None and readings >= MINIMUM_REFERENCE_SAMPLES,
+    }
+
+
 def _registration_banner(lines: list[str]) -> str:
     """`lines` boxed, so a registration's verdict survives this console's own noise.
 
@@ -339,7 +384,11 @@ def _register_building(payload: dict, peer) -> dict:
     if not matches:
         raise ValueError(f"{building_id} is not in {os.path.basename(SOURCE_BUILDINGS_PATH)}")
 
-    working_path = Path(WORKING_BUILDING_CATALOG_PATH)
+    # The runtime catalog, not the working copy. A registration that only reached
+    # `building_catalog/physical-building-catalog.json` was live until the next restart and then
+    # silently gone, because that is not the file this server boots from -- which is why a
+    # building kept coming back drawn against the old, wrong reference.
+    working_path = Path(PHYSICAL_BUILDING_CATALOG_PATH)
     working_catalog = load_catalog(working_path)
 
     # What is on the table *now* -- not what has ever been seen. Both halves matter: enough
@@ -737,6 +786,34 @@ async def handle_web_client(websocket):
                         payload,
                     )
 
+            elif message_type == "scan_target":
+                # The operator saying "the block is on the outline, look at it". From here the
+                # server answers every cycle instead of only when a registration is attempted, so
+                # Register can unlock on evidence rather than on the operator's guess.
+                global active_scan
+                try:
+                    scan_building = str(payload["building_id"]).strip().upper()
+                    scan_target = payload["target"]
+                    if basemap_homography is None:
+                        raise ValueError("no map calibration in force")
+                    easting, northing = _WGS84_TO_UTM.transform(
+                        float(scan_target[0]), float(scan_target[1])
+                    )
+                    (scan_pixel,) = project_utm_to_pixels(
+                        basemap_homography, np.array([[easting, northing]], dtype=np.float64)
+                    )
+                    active_scan = {
+                        "building_id": scan_building,
+                        "target_pixel": (float(scan_pixel[0]), float(scan_pixel[1])),
+                    }
+                    print(f"Scanning for {scan_building}'s block on the outline")
+                except (KeyError, TypeError, ValueError) as exc:
+                    active_scan = None
+                    print(f"Rejected scan_target: {exc}")
+
+            elif message_type == "scan_stop":
+                active_scan = None
+
             elif message_type == "register_building":
                 try:
                     result = _register_building(payload, peer)
@@ -751,6 +828,7 @@ async def handle_web_client(websocket):
                         "Written to building_catalog/physical-building-catalog.json.",
                         "Run building_catalog/publish-to-runtime.ps1 to make it the next boot's default.",
                     ]))
+                    active_scan = None
                     await websocket.send(json.dumps(result))
                 except (KeyError, OSError, TypeError, ValueError) as exc:
                     print(_registration_banner([
@@ -799,6 +877,9 @@ async def handle_web_client(websocket):
             print("Sending to web client:", markers_json)
             await websocket.send(markers_json)
             await websocket.send(json.dumps(_markers_on_table_message()))
+            progress = _scan_progress_message()
+            if progress is not None:
+                await websocket.send(json.dumps(progress))
 
         await stream_tracking_updates(send)  # 200ms interval between updates
 

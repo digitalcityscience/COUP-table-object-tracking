@@ -58,8 +58,15 @@ def rig(tmp_path, monkeypatch):
     working_catalog_path.parent.mkdir(parents=True)
     real_catalog = load_catalog(Path(server.PHYSICAL_BUILDING_CATALOG_PATH))
     save_catalog(working_catalog_path, copy.deepcopy(real_catalog))
+    runtime_catalog_path = tmp_path / "runtime" / "physical-building-catalog.json"
+    runtime_catalog_path.parent.mkdir(parents=True)
+    save_catalog(runtime_catalog_path, copy.deepcopy(real_catalog))
 
     monkeypatch.setattr(server, "WORKING_BUILDING_CATALOG_PATH", str(working_catalog_path))
+    # Registration writes the *runtime* catalog -- the file the server boots from -- so this has
+    # to be redirected too. It was not, and the first registration test to run overwrote the
+    # repository's own copy: the fixture's promise to never write it was one path out of date.
+    monkeypatch.setattr(server, "PHYSICAL_BUILDING_CATALOG_PATH", str(runtime_catalog_path))
     monkeypatch.setattr(server, "session_store", SessionStore(tmp_path / "calibration.sqlite3"))
     monkeypatch.setattr(server, "physical_building_catalog", copy.deepcopy(real_catalog))
     monkeypatch.setattr(
@@ -68,7 +75,11 @@ def rig(tmp_path, monkeypatch):
     return type(
         "Rig",
         (),
-        {"working_catalog_path": working_catalog_path, "store": server.session_store},
+        {
+            "working_catalog_path": working_catalog_path,
+            "runtime_catalog_path": runtime_catalog_path,
+            "store": server.session_store,
+        },
     )
 
 
@@ -307,9 +318,12 @@ async def test_a_calibration_whose_building_id_contradicts_its_marker_is_refused
         session_id = server.current_session_id
 
     assert rig.store.session_buildings(session_id) == []
-    catalog = load_catalog(rig.working_catalog_path)
-    for building in catalog["buildings"]:
-        assert alignment_is_verified(building) is False
+    # Nothing was written at all -- stated as "the file is exactly what it was seeded with"
+    # rather than "nothing in it is verified", which was only true while the shipped catalog
+    # happened to contain no verified building and stopped being true once one did.
+    assert load_catalog(rig.working_catalog_path) == load_catalog(
+        Path(server.PHYSICAL_BUILDING_CATALOG_PATH)
+    )
 
 
 @pytest.mark.asyncio

@@ -427,13 +427,22 @@ def registration_rig(tmp_path, monkeypatch):
     The live catalog is a module global that `_register_building` reassigns, so without this a
     registration would leak into every later test in the session.
     """
-    working = tmp_path / "physical-building-catalog.json"
+    working = tmp_path / "working" / "physical-building-catalog.json"
+    working.parent.mkdir(parents=True)
     save_catalog(working, empty_catalog())
     monkeypatch.setattr(server, "WORKING_BUILDING_CATALOG_PATH", str(working))
+    # Registration writes the runtime catalog -- the file the server boots from -- so that path
+    # needs redirecting too, or these tests write the repository's own copy. They did: the
+    # fixture's promise to leave the real catalog alone was one constant out of date, and the
+    # first run after registration moved to the runtime file overwrote it with test fixtures.
+    runtime = tmp_path / "runtime" / "physical-building-catalog.json"
+    runtime.parent.mkdir(parents=True)
+    save_catalog(runtime, empty_catalog())
+    monkeypatch.setattr(server, "PHYSICAL_BUILDING_CATALOG_PATH", str(runtime))
     monkeypatch.setattr(server, "physical_building_catalog", empty_catalog())
     monkeypatch.setattr(server, "physical_buildings_by_marker", {})
     server.recent_marker_rotations.clear()
-    yield working
+    yield runtime
     server.recent_marker_rotations.clear()
 
 

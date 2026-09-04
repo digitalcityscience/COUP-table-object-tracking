@@ -17,7 +17,7 @@
         12
       ],
       "marker_reference_rotations": {
-        "12": -109.39333226262147
+        "12": -110.50458218808376
       },
       "local_bbox": [
         -20.944513765771404,
@@ -351,7 +351,7 @@
         18
       ],
       "marker_reference_rotations": {
-        "18": -120.3190414018273
+        "18": 135.18439065277863
       },
       "local_bbox": [
         -13.264419153931827,
@@ -400,6 +400,12 @@
         "land_use_suggested": "- to be defined -",
         "number_of_stories": 13,
         "city_scope_id": "B-11"
+      },
+      "calibration": {
+        "rotation_offset_deg": 0.0,
+        "offset_east_m": 0.0,
+        "offset_north_m": 0.0,
+        "scale_residual": 1.0
       }
     },
     {
@@ -409,7 +415,7 @@
         24
       ],
       "marker_reference_rotations": {
-        "24": 69.9176893736038
+        "24": 67.32374144575334
       },
       "local_bbox": [
         -22.341575492358384,

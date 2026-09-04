@@ -107,7 +107,10 @@ def test_a_block_that_was_still_moving_is_refused():
     as a constant -- exactly the silent, permanent kind of wrongness this whole flow exists to
     end. Refusing costs the operator one more confirmation.
     """
-    moving = [-116.0 + index * 5.0 for index in range(MINIMUM_REFERENCE_SAMPLES)]
+    # Spread expressed against the tolerance rather than as a fixed step, so this stays a test
+    # about a moving block instead of one about how many samples happen to be required.
+    step = 3.0 * MAXIMUM_REFERENCE_SPREAD_DEG / MINIMUM_REFERENCE_SAMPLES
+    moving = [-116.0 + index * step for index in range(MINIMUM_REFERENCE_SAMPLES)]
 
     with pytest.raises(ValueError, match="moved"):
         reference_rotation_from_samples(moving)

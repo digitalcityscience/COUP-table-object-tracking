@@ -49,10 +49,15 @@ from physical_building_catalog import (
 #: module exists to end.
 MAXIMUM_REFERENCE_SPREAD_DEG = 20.0
 
-#: How few readings still make a reference. Snapshots arrive every 200 ms, so ten is two seconds
+#: How few readings still make a reference. Snapshots arrive every 200 ms, so five is one second
 #: of the block sitting still -- enough for the circular mean to beat single-frame corner noise,
 #: short enough that the operator is not left holding a block.
-MINIMUM_REFERENCE_SAMPLES = 10
+#:
+#: This is also the count the scan gate reports progress against: the operator presses "ready to
+#: scan", the server counts readings of the block on the outline, and Register unlocks when it
+#: reaches this many. One number, so the button cannot go green on a sample set the reference
+#: average would then refuse.
+MINIMUM_REFERENCE_SAMPLES = 5
 
 
 def circular_mean_degrees(angles: Iterable[float]) -> float:
@@ -210,6 +215,28 @@ def named_marker(
             f"Pick {building_id}'s own block, or re-register {owner['building_id']} first"
         )
     return marker_id
+
+
+def marker_near_target(
+    marker_pixels: Mapping[int, tuple[float, float]],
+    target_pixel: tuple[float, float],
+    proximity_px: float = TARGET_PROXIMITY_PX,
+) -> int | None:
+    """Which marker is on the alignment target, or `None` if none is.
+
+    The same question `marker_on_target` answers, asked where an absence is an ordinary state
+    rather than an error: the scan gate runs this every cycle while the operator is still
+    settling the block, and "not yet" is the expected answer for most of them.
+    """
+    target_x, target_y = float(target_pixel[0]), float(target_pixel[1])
+    near = {
+        marker_id: math.hypot(float(x) - target_x, float(y) - target_y)
+        for marker_id, (x, y) in marker_pixels.items()
+    }
+    near = {marker_id: d for marker_id, d in near.items() if d <= proximity_px}
+    if not near:
+        return None
+    return min(near.items(), key=lambda item: item[1])[0]
 
 
 def marker_on_target(

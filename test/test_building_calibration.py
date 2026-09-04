@@ -319,12 +319,19 @@ def test_an_uncalibrated_building_is_drawn_exactly_as_before():
     assert plain["geometry"] == explicit["geometry"]
 
 
-def test_the_real_catalog_still_loads_without_any_calibration_block():
-    """The three registered buildings predate this step; they must keep working untouched."""
+def test_a_catalog_entry_with_no_calibration_block_still_loads():
+    """Entries that predate this step must keep working untouched.
+
+    Stated as a property of the entries that lack the block, rather than as a claim about the
+    whole shipped catalog. It used to be the latter, which quietly turned "old entries still
+    load" into "nothing has ever been calibrated" -- and so started failing the moment the
+    registration flow did its job and wrote a real one.
+    """
     catalog = load_catalog(Path(__file__).resolve().parents[1] / "physical-building-catalog.json")
 
     for building in catalog["buildings"]:
-        assert building_calibration_of(building) == DEFAULT_BUILDING_CALIBRATION
+        if "calibration" not in building:
+            assert building_calibration_of(building) == DEFAULT_BUILDING_CALIBRATION
 
 
 # --- D1: a measured zero and an unmeasured heading are not the same thing ----------------
@@ -396,13 +403,22 @@ def test_the_unmeasured_heading_survives_a_save_and_reload(tmp_path):
     assert alignment_is_verified(reloaded["buildings"][0]) is False
 
 
-def test_the_three_registered_buildings_are_all_still_unaligned():
-    """Documents the actual state of the rig: no absolute heading has ever been verified."""
+def test_the_real_catalog_reports_each_building_alignment_honestly():
+    """Whether a heading was verified is per-building, and the file must be able to say either.
+
+    This used to assert that *every* shipped building was unverified, as a note on the rig's
+    state at the time. That made a passing suite depend on nobody ever registering anything --
+    the one thing the flow exists to do -- so it is now the invariant instead: an entry carries a
+    measured offset or a null, and `alignment_is_verified` follows that and nothing else.
+    """
     catalog = load_catalog(Path(__file__).resolve().parents[1] / "physical-building-catalog.json")
 
-    assert [building["building_id"] for building in catalog["buildings"] if not alignment_is_verified(building)] == [
-        building["building_id"] for building in catalog["buildings"]
-    ]
+    assert catalog["buildings"], "the shipped catalog should not be empty"
+    for building in catalog["buildings"]:
+        offset = building_calibration_of(building)["rotation_offset_deg"]
+        assert alignment_is_verified(building) is (offset is not None)
+        for marker_id in building["marker_ids"]:
+            assert str(marker_id) in building["marker_reference_rotations"]
 
 
 # --- D2: the heading goes through the homography, not around it -------------------------
