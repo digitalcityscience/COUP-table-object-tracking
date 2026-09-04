@@ -31,6 +31,7 @@ from pixel_to_utm import (
     create_basemap_homography,
     direction_through_homography,
     ground_scale,
+    project_pixel_to_utm,
     project_utm_to_pixels,
 )
 from table_to_geojson import markers_json_to_geojson
@@ -65,6 +66,7 @@ from session_store import BuildingCalibration, SessionStore
 #: WGS84 -> UTM 32N, for turning the frontend's alignment-target position into the frame the
 #: homography speaks. Built once: constructing a Transformer parses CRS definitions.
 _WGS84_TO_UTM = Transformer.from_crs("EPSG:4326", "EPSG:25832", always_xy=True)
+_UTM_TO_WGS84 = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
 import websockets
 
 # Windows consoles default to a non-UTF-8 codepage (e.g. cp1252), which
@@ -213,9 +215,17 @@ def markers_to_building_geojson(
                 )
                 _warned_unknown_marker_ids.add(marker_id)
             continue
-        center = tuple(marker_feature["geometry"]["coordinates"])
         table_pixel = (float(properties["table_x_px"]), float(properties["table_y_px"]))
         latest_table_pixel_positions[marker_id] = (*table_pixel, time.time())
+        marker_center_offset = building.get("marker_center_offset_px", [0.0, 0.0])
+        corrected_table_pixel = (
+            table_pixel[0] + float(marker_center_offset[0]),
+            table_pixel[1] + float(marker_center_offset[1]),
+        )
+        corrected_easting, corrected_northing = project_pixel_to_utm(
+            homography, corrected_table_pixel
+        )
+        center = _UTM_TO_WGS84.transform(corrected_easting, corrected_northing)
         # D2: the marker's heading goes through the homography instead of being copied across
         # as a scalar. Bound to *this* marker's own table pixel, because the correction is
         # position-dependent -- the map is 3.5% anisotropic and 0.42 degrees out of square, so
@@ -229,7 +239,7 @@ def markers_to_building_geojson(
             float(properties["rotation"]),
             scale=scale,
             table_direction_to_map=partial(
-                direction_through_homography, homography, table_pixel
+                direction_through_homography, homography, corrected_table_pixel
             ),
         )
         # The panel's table diagram needs to know which regions of the table have been sampled,
@@ -446,6 +456,40 @@ def _register_building(payload: dict, peer) -> dict:
     )
 
     entry = registered_entry(matches[0], marker_id, reference_rotation)
+
+    # The cyan target and the detected marker centre are both known in the same table-pixel
+    # frame. Store their difference on the building, not in the basemap homography: the
+    # frontend legitimately replaces that homography when its AOI changes, while this camera /
+    # marker-centre correction remains valid for every AOI.
+    if target is not None and basemap_homography is not None:
+        try:
+            target_lng, target_lat = float(target[0]), float(target[1])
+        except (TypeError, ValueError, IndexError):
+            raise ValueError("target must be a [longitude, latitude] pair") from None
+        marker_pixel = steady.get(marker_id)
+        if marker_pixel is None:
+            raise ValueError(f"marker {marker_id} has no current table position")
+        easting, northing = _WGS84_TO_UTM.transform(target_lng, target_lat)
+        (target_pixel,) = project_utm_to_pixels(
+            basemap_homography, np.array([[easting, northing]], dtype=np.float64)
+        )
+        marker_center_offset = [
+            float(target_pixel[0]) - float(marker_pixel[0]),
+            float(target_pixel[1]) - float(marker_pixel[1]),
+        ]
+        entry["marker_center_offset_px"] = marker_center_offset
+        calibration_logger.info(
+            "MARKER CENTER CALIBRATED from %s | building=%s | marker=%s "
+            "| marker_pixel=%s | target_pixel=%s | offset_px=%s | target_lnglat=%s",
+            peer,
+            building_id,
+            marker_id,
+            marker_pixel,
+            [float(target_pixel[0]), float(target_pixel[1])],
+            marker_center_offset,
+            [target_lng, target_lat],
+        )
+
     save_catalog(working_path, catalog_with_entry(working_catalog, entry))
 
     # The live catalog takes that same result, so what the operator sees on the table and what is

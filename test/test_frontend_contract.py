@@ -13,12 +13,13 @@ import json
 from pathlib import Path
 
 import pytest
+from pyproj import Transformer
 
 import server
 from calibration_contract import MAP_CALIBRATION_MARKER_CORNERS
 from marker import Marker, Markers
 from physical_building_catalog import MODEL_SCALE, empty_catalog, save_catalog
-from pixel_to_utm import direction_through_homography, ground_scale
+from pixel_to_utm import direction_through_homography, ground_scale, project_pixel_to_utm
 from session_store import SessionStore
 
 websockets = pytest.importorskip("websockets")
@@ -492,6 +493,40 @@ async def test_registering_a_building_records_the_block_s_heading_as_verified(re
     (feature,) = [f for f in message["features"] if f["properties"]["building_id"] == "G11"]
     assert feature["properties"]["alignment_verified"] is True
     assert feature["properties"]["calibration"]["rotation_offset_deg"] == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_registration_saves_a_marker_center_correction_that_survives_recalibration(
+    registration_rig,
+):
+    """The cyan observation belongs to the marker, not to one temporary map homography."""
+    utm_to_wgs84 = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
+    wgs84_to_utm = Transformer.from_crs("EPSG:4326", "EPSG:25832", always_xy=True)
+
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        await _settle_block(session, 18, -116.25)
+        before = project_pixel_to_utm(server.basemap_homography, (700.0, 400.0))
+        intended_utm = (before[0] + 2.0, before[1] - 3.0)
+        target_lng, target_lat = utm_to_wgs84.transform(*intended_utm)
+
+        await session.send(
+            {
+                "type": "register_building",
+                "building_id": "G11",
+                "marker_id": 18,
+                "target": [target_lng, target_lat],
+            }
+        )
+        result = await session.control("register_building_result")
+        await session.send({"type": "clear_calibration"})
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        message = await session.push(_table_with_block(18, -116.25))
+
+    assert result["ok"] is True
+    (feature,) = [f for f in message["features"] if f["properties"]["building_id"] == "G11"]
+    corrected_utm = wgs84_to_utm.transform(*feature["properties"]["center"])
+    assert corrected_utm == pytest.approx(intended_utm, abs=0.01)
 
 
 @pytest.mark.asyncio
