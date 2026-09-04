@@ -46,12 +46,16 @@ def normalizeCorners(coords:Corner) -> Tuple[int,int,float]:
     dy = p1[1] - centerY
 
     angle = math.atan2(dy,dx)
+    # The `-1` that used to sit here dated from a single mirrored camera feed. Stitching now
+    # hands us a table frame with +x = East and +y = North (det(H) > 0, no mirroring), so the
+    # negation stopped being a correction and became the bug: turning a block +90 deg on the
+    # table rotated its footprint -90 deg on the map. Measured on the rig 2026-09-04 across
+    # four orientations of G11 -- the map tracked the block at exactly -1x, within 1.3 deg.
     angleDeg = math.degrees(angle)
-    mirroredAngleDeg = -angleDeg #we need do multiply with -1 because the picture that we got is mirrord
     #angleDeg = (angleDeg + 360) % 360  # map from -180<->180 to 0<->360
 
     centerX = numpy.interp(centerX,[0,10000],[0,10000])
     centerY = numpy.interp(centerY,[0,10000],[0,10000])
-    
-    return int(centerX), int(centerY), mirroredAngleDeg
+
+    return int(centerX), int(centerY), angleDeg
     

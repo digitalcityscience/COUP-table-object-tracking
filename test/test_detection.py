@@ -1,6 +1,8 @@
+import math
 import os
 
 import numpy
+import pytest
 from detection import detect_markers, normalizeCorners
 from image import read_from_file
 
@@ -54,4 +56,37 @@ def test_normalize_corners():
         ],
         dtype="float32",
     )
-    assert numpy.array_equiv(normalizeCorners(corners), [449, 614, -78.90624111411])
+    assert numpy.array_equiv(normalizeCorners(corners), [449, 614, 78.90624111411])
+
+
+def _square_at(center_x, center_y, rotation_deg, half=40.0):
+    """One marker quad, rotated `rotation_deg` counter-clockwise in the table frame."""
+    angle = math.radians(rotation_deg)
+    cos, sin = math.cos(angle), math.sin(angle)
+    return numpy.array(
+        [
+            [
+                [
+                    center_x + half * (dx * cos - dy * sin),
+                    center_y + half * (dx * sin + dy * cos),
+                ]
+                for dx, dy in ((1, 1), (-1, 1), (-1, -1), (1, -1))
+            ]
+        ],
+        dtype="float32",
+    )
+
+
+def test_normalize_corners_reports_rotation_counter_clockwise_positive():
+    """The table frame is +x East, +y North -- turning a block left must read as a bigger angle.
+
+    This is the regression guard for the sign bug fixed on 2026-09-04: a stray `-1` in
+    `normalizeCorners` made the reported angle run backwards, so a block turned +90 deg on the
+    table placed its footprint at -90 deg on the map. `place_geometry` consumes this number with
+    a counter-clockwise-positive rotation matrix, so the producer has to agree.
+    """
+    baseline = normalizeCorners(_square_at(500.0, 500.0, 0.0))[2]
+
+    for turn in (30.0, 90.0, 170.0):
+        turned = normalizeCorners(_square_at(500.0, 500.0, turn))[2]
+        assert (turned - baseline + 180.0) % 360.0 - 180.0 == pytest.approx(turn, abs=1e-3)
