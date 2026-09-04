@@ -231,7 +231,7 @@ BUILDING_CALIBRATION_MESSAGE_FIELDS: dict[str, str] = {
 }
 
 
-def calibration_from_message(payload: dict[str, Any]) -> dict[str, float]:
+def calibration_from_message(payload: dict[str, Any]) -> dict[str, float | None]:
     """The catalog-unit calibration a `building_calibration` message asks for.
 
     Only the fields the message actually carries, so a save of the one axis the operator touched
@@ -258,7 +258,7 @@ def calibration_from_message(payload: dict[str, Any]) -> dict[str, float]:
     return calibration
 
 
-def calibration_as_message_fields(building: dict[str, Any]) -> dict[str, float]:
+def calibration_as_message_fields(building: dict[str, Any]) -> dict[str, float | None]:
     """One building's stored calibration, back in the units a `building_calibration` speaks.
 
     The exact inverse of `calibration_from_message`, and published on every runtime feature so the

@@ -413,3 +413,112 @@ def test_migrating_an_already_current_store_is_a_no_op(tmp_path):
     assert [row["rotation_offset_deg"] for row in reopened.session_buildings(session_id)] == [
         pytest.approx(-2.5)
     ]
+
+
+def test_a_rebuild_interrupted_half_way_is_finished_rather_than_losing_the_rows(tmp_path):
+    """The failure mode the atomic rebuild exists to prevent, staged by hand.
+
+    A rebuild that renames the table, creates the new one and then dies leaves a fresh empty
+    `session_buildings` beside the real rows. The nullable column on that empty table is enough
+    to make a naive "is it already migrated?" check say yes -- and the calibration record this
+    module exists to protect would be returned as empty, forever, with no error anywhere.
+    """
+    path = tmp_path / "calibration_sessions.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE sessions (
+                id           TEXT PRIMARY KEY,
+                created_at   TEXT NOT NULL,
+                aoi_corners  TEXT NOT NULL,
+                ground_scale REAL NOT NULL,
+                homography   TEXT NOT NULL,
+                global_k     REAL NOT NULL
+            );
+            INSERT INTO sessions VALUES
+                ('20260903-abcd1234', '2026-09-03T14:05:00', '[[10.0, 53.0]]', 327.0, '[[1.0]]', 0.654);
+            -- The interrupted rebuild: real rows parked aside, an empty new table in place.
+            CREATE TABLE session_buildings_superseded (
+                session_id          TEXT NOT NULL,
+                building_id         TEXT NOT NULL,
+                marker_id           INTEGER NOT NULL,
+                rotation_offset_deg REAL NOT NULL,
+                offset_east_m       REAL NOT NULL,
+                offset_north_m      REAL NOT NULL,
+                scale_residual      REAL NOT NULL,
+                table_x_px          REAL NOT NULL,
+                table_y_px          REAL NOT NULL,
+                recorded_at         TEXT NOT NULL
+            );
+            INSERT INTO session_buildings_superseded VALUES
+                ('20260903-abcd1234', 'G07', 12, -2.5, 0.35, -0.12, 1.01, 811.0, 405.0,
+                 '2026-09-03T14:06:00');
+            CREATE TABLE session_buildings (
+                session_id          TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                building_id         TEXT NOT NULL,
+                marker_id           INTEGER NOT NULL,
+                rotation_offset_deg REAL,
+                offset_east_m       REAL NOT NULL,
+                offset_north_m      REAL NOT NULL,
+                scale_residual      REAL NOT NULL,
+                table_x_px          REAL NOT NULL,
+                table_y_px          REAL NOT NULL,
+                recorded_at         TEXT NOT NULL,
+                PRIMARY KEY (session_id, building_id, marker_id, table_x_px, table_y_px)
+            );
+            """
+        )
+
+    (recovered,) = SessionStore(path).session_buildings("20260903-abcd1234")
+
+    assert recovered["building_id"] == "G07"
+    assert recovered["rotation_offset_deg"] == pytest.approx(-2.5)
+    assert recovered["offset_east_m"] == pytest.approx(0.35)
+    with sqlite3.connect(path) as connection:
+        leftover = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_buildings_superseded'"
+        ).fetchone()
+    assert leftover is None
+
+
+# --- what the stored ground_scale actually means -----------------------------------------
+
+
+def test_a_session_records_which_scale_formula_derived_it(tmp_path):
+    """`ground_scale`/`global_k` are stored, and the formula behind them changed on 2026-09-04.
+
+    `all_building_measurements` joins them onto every building row for the global fit, so rows
+    from either side of that change must not be comparable by accident: the ~1.8% step would read
+    as a real position-dependent signal.
+    """
+    store = _store(tmp_path)
+    session_id = _begin(store)
+
+    assert store.session(session_id)["scale_definition"] == 2
+
+
+def test_sessions_recorded_before_the_two_axis_probe_are_stamped_as_such(tmp_path):
+    """An existing rig file's 26 sessions were derived by the single-axis probe. Say so."""
+    path = tmp_path / "calibration_sessions.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE sessions (
+                id           TEXT PRIMARY KEY,
+                created_at   TEXT NOT NULL,
+                aoi_corners  TEXT NOT NULL,
+                ground_scale REAL NOT NULL,
+                homography   TEXT NOT NULL,
+                global_k     REAL NOT NULL
+            );
+            INSERT INTO sessions VALUES
+                ('20260903-abcd1234', '2026-09-03T14:05:00', '[[10.0, 53.0]]', 327.0299, '[[1.0]]', 0.654);
+            """
+        )
+
+    store = SessionStore(path)
+
+    assert store.session("20260903-abcd1234")["scale_definition"] == 1
+    # ...and a session recorded now, against the same file, is stamped with today's definition.
+    new_id = _begin(store)
+    assert store.session(new_id)["scale_definition"] == 2

@@ -371,7 +371,12 @@ async def handle_web_client(websocket):
         {"type": "map_calibration", "points": [{"pixel_position": [x, y], "utm_position": [x, y]}, ...]}
         {"type": "clear_calibration"}  # drops the current homography; resumes raw marker output
         {"type": "building_calibration", "building_id": "G07", "marker_id": 12,
-         "rotation_offset_deg": ..., "offset_east_mm": ..., "offset_north_mm": ...,
+         # `rotation_offset_deg` is nullable in BOTH directions: Python publishes `null` for a
+         # building whose heading has never been verified, and accepts `null` to put one back to
+         # unverified. A panel that does arithmetic on it without a null check will either throw
+         # or coerce to 0 -- which reinstates the measured-zero conflation this exists to end.
+         "rotation_offset_deg": ...,  # float | null
+         "offset_east_mm": ..., "offset_north_mm": ...,
          "scale_residual": ...}  # any subset of the four; merged onto what is stored.
         # Offsets are table millimetres in the building's own local frame; the catalog stores
         # them as real metres (physical_building_catalog.calibration_from_message).
@@ -538,6 +543,16 @@ async def send_tracking_matches_unity(connection):
     Always sends the raw marker JSON string, regardless of whether a basemap
     homography has been configured; the Unity client does not send anything
     back to the server.
+
+    The third element of each marker tuple is `detection.normalizeCorners`'s raw table-frame
+    angle, and it CHANGED SIGN on 2026-09-04 when the stray `-1` came out of that function. This
+    path applies no correction of its own -- deliberately: the raw stream is raw, and the
+    homography-aware heading (`markers_to_building_geojson`) only exists once a `map_calibration`
+    has arrived, which a Unity client never sends. So a Unity consumer that rotates its models by
+    `snapshot[id][2]` now turns them the other way than it did before that commit. The same is
+    true of the web client's pre-calibration frames below. Neither consumer lives in this repo,
+    so nothing here can test it; it is called out so the next person to see models spinning
+    backwards finds the reason in one place instead of re-deriving it.
     """
     async def send(snapshot: dict):
         markers_json = json.dumps(snapshot)

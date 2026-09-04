@@ -54,6 +54,24 @@ _TABLE_POSITION_GRAIN_PX = 1.0
 #: a day's AOIs apart and short enough to read out of a log line or a filename.
 _AOI_HASH_LENGTH = 8
 
+#: Where a rebuild parks the old `session_buildings` while it copies out of it. Named rather than
+#: inlined because `_migrate_schema` also looks for it on open: its presence means a previous
+#: rebuild was interrupted, and the rows in it -- not the ones in `session_buildings` -- are the
+#: real ones.
+_SUPERSEDED_SESSION_BUILDINGS = "session_buildings_superseded"
+
+#: How `sessions.ground_scale` and `sessions.global_k` were derived, stamped on every row.
+#:
+#: Those two are *stored*, and `all_building_measurements` joins them onto every building row so
+#: the global fit can compare measurements across sessions. On 2026-09-04 the formula behind them
+#: changed: `pixel_to_utm.metres_per_table_pixel` went from probing the pixel-x axis alone to the
+#: geometric mean of both axes, which moves `ground_scale` by ~1.8% on this rig. Without a stamp,
+#: a fit run next week would weight rows from before and after that change as though the numbers
+#: meant the same thing, and the ~1.8% step would read as a real position-dependent signal --
+#: exactly the kind of invented signal the two-table split exists to prevent.
+_SINGLE_AXIS_SCALE_DEFINITION = 1
+_SCALE_DEFINITION = 2
+
 #: The `session_buildings` columns, in order, named once so the schema, the rebuild migration's
 #: INSERT and its SELECT cannot drift apart -- a reordered column list in a table rebuild silently
 #: shuffles every stored measurement into the wrong field.
@@ -91,12 +109,13 @@ CREATE TABLE IF NOT EXISTS session_buildings (
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
-    id           TEXT PRIMARY KEY,
-    created_at   TEXT NOT NULL,
-    aoi_corners  TEXT NOT NULL,
-    ground_scale REAL NOT NULL,
-    homography   TEXT NOT NULL,
-    global_k     REAL NOT NULL
+    id               TEXT PRIMARY KEY,
+    created_at       TEXT NOT NULL,
+    aoi_corners      TEXT NOT NULL,
+    ground_scale     REAL NOT NULL,
+    homography       TEXT NOT NULL,
+    global_k         REAL NOT NULL,
+    scale_definition INTEGER NOT NULL DEFAULT """ + str(_SCALE_DEFINITION) + """
 );
 """ + _SESSION_BUILDINGS_TABLE
 
@@ -186,38 +205,87 @@ class BuildingCalibration:
     table_y_px: float
 
 
+def _table_exists(connection: sqlite3.Connection, name: str) -> bool:
+    return (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+        ).fetchone()
+        is not None
+    )
+
+
+def _rebuild_session_buildings(connection: sqlite3.Connection) -> None:
+    """Copy `session_buildings` into a table with the current definition, in one transaction.
+
+    Four `execute` calls rather than one `executescript`, and this is the whole point: SQLite's
+    `executescript` commits whatever transaction is open before it runs and then lets its
+    statements land one by one, so a `with connection:` around it buys no atomicity at all. A
+    process killed between the rename and the drop would leave a fresh, empty `session_buildings`
+    beside the real rows -- and the next open would see a nullable column, conclude the migration
+    was already done, and return the empty table forever. That is the calibration record this
+    module exists to protect, gone with no error anywhere.
+
+    Issued as separate statements the rebuild is one real transaction (SQLite's DDL is
+    transactional), so a crash rolls the whole thing back and the next open simply tries again.
+    """
+    column_list = ", ".join(_SESSION_BUILDING_COLUMNS)
+    with connection:
+        if _table_exists(connection, _SUPERSEDED_SESSION_BUILDINGS):
+            # A leftover from the non-atomic `executescript` rebuild that shipped briefly. The
+            # rows in it are the authoritative ones; whatever sits in `session_buildings` was at
+            # best a partial copy of them.
+            connection.execute("DROP TABLE IF EXISTS session_buildings")
+        else:
+            connection.execute(
+                f"ALTER TABLE session_buildings RENAME TO {_SUPERSEDED_SESSION_BUILDINGS}"
+            )
+        connection.execute(_SESSION_BUILDINGS_TABLE)
+        connection.execute(
+            f"INSERT INTO session_buildings ({column_list}) "
+            f"SELECT {column_list} FROM {_SUPERSEDED_SESSION_BUILDINGS}"
+        )
+        connection.execute(f"DROP TABLE {_SUPERSEDED_SESSION_BUILDINGS}")
+
+
 def _migrate_schema(connection: sqlite3.Connection) -> None:
     """Bring a store file written by an older build up to the current schema.
 
     Runs on every open, and is a no-op on a file that is already current, so there is no version
     column to keep honest and no way to open a stale file by forgetting a step.
 
-    The one migration so far: `rotation_offset_deg` was `NOT NULL`, which quietly made it
-    impossible to file the now-normal measurement "this operator nudged the east offset on a
-    building whose heading has never been verified". SQLite cannot drop a NOT NULL in place, so
-    the table is rebuilt. Foreign keys are suspended across the rebuild because
-    `session_buildings` references `sessions`, and re-enabled straight after -- `PRAGMA
-    foreign_keys` is a no-op inside a transaction, hence the explicit statements around the
-    transaction rather than inside it.
+    Two migrations so far:
+
+    - `rotation_offset_deg` was `NOT NULL`, which quietly made it impossible to file the
+      now-normal measurement "this operator nudged the east offset on a building whose heading has
+      never been verified". SQLite cannot drop a NOT NULL in place, so the table is rebuilt.
+    - `sessions` gained `scale_definition`, because `ground_scale` and `global_k` are *stored*
+      per session and the formula behind them changed -- see `_SCALE_DEFINITION`.
+
+    Foreign keys are suspended across the rebuild because `session_buildings` references
+    `sessions`, and re-enabled straight after: `PRAGMA foreign_keys` is a no-op inside a
+    transaction, hence the explicit statements around it rather than inside.
     """
+    session_columns = {row["name"] for row in connection.execute("PRAGMA table_info(sessions)")}
+    if session_columns and "scale_definition" not in session_columns:
+        with connection:
+            # Existing rows were derived by the single-axis probe; saying so is the whole value of
+            # the column, so they are stamped 1 rather than silently adopting today's meaning.
+            connection.execute(
+                "ALTER TABLE sessions ADD COLUMN scale_definition INTEGER NOT NULL DEFAULT "
+                f"{_SINGLE_AXIS_SCALE_DEFINITION}"
+            )
+
     columns = {row["name"]: row for row in connection.execute("PRAGMA table_info(session_buildings)")}
     rotation_column = columns.get("rotation_offset_deg")
-    if rotation_column is None or not rotation_column["notnull"]:
+    needs_rebuild = (rotation_column is not None and rotation_column["notnull"]) or _table_exists(
+        connection, _SUPERSEDED_SESSION_BUILDINGS
+    )
+    if not needs_rebuild:
         return
 
-    column_list = ", ".join(_SESSION_BUILDING_COLUMNS)
     connection.execute("PRAGMA foreign_keys = OFF")
     try:
-        with connection:
-            connection.executescript(
-                f"""
-                ALTER TABLE session_buildings RENAME TO session_buildings_superseded;
-                {_SESSION_BUILDINGS_TABLE}
-                INSERT INTO session_buildings ({column_list})
-                    SELECT {column_list} FROM session_buildings_superseded;
-                DROP TABLE session_buildings_superseded;
-                """
-            )
+        _rebuild_session_buildings(connection)
     finally:
         connection.execute("PRAGMA foreign_keys = ON")
 
@@ -263,13 +331,17 @@ class SessionStore:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO sessions (id, created_at, aoi_corners, ground_scale, homography, global_k)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO sessions (
+                    id, created_at, aoi_corners, ground_scale, homography, global_k,
+                    scale_definition
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
-                    aoi_corners  = excluded.aoi_corners,
-                    ground_scale = excluded.ground_scale,
-                    homography   = excluded.homography,
-                    global_k     = excluded.global_k
+                    aoi_corners      = excluded.aoi_corners,
+                    ground_scale     = excluded.ground_scale,
+                    homography       = excluded.homography,
+                    global_k         = excluded.global_k,
+                    scale_definition = excluded.scale_definition
                 """,
                 (
                     session_id,
@@ -278,6 +350,7 @@ class SessionStore:
                     float(ground_scale),
                     json.dumps([[float(value) for value in row] for row in homography]),
                     float(global_k),
+                    _SCALE_DEFINITION,
                 ),
             )
         return session_id
@@ -361,7 +434,7 @@ class SessionStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT b.*, s.ground_scale, s.global_k, s.aoi_corners
+                SELECT b.*, s.ground_scale, s.global_k, s.aoi_corners, s.scale_definition
                 FROM session_buildings b
                 JOIN sessions s ON s.id = b.session_id
                 ORDER BY b.session_id, b.building_id, b.marker_id

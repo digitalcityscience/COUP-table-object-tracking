@@ -145,14 +145,19 @@ def axis_metres_per_table_pixel(
     the difference is itself a diagnostic: on the 2026-09-04 rig they came out 0.3297 and 0.3420
     m/px, a ratio of 0.9641. A projection that is 3.5% out of square is a projector or AOI
     problem, and a caller that wants to notice it needs to see both.
+
+    The pair is `(pixel-x, pixel-y)` -- the *table image's* axes, not the compass's. They are
+    named for the pixel axes rather than east/north deliberately: this rig's table happens to sit
+    within a fifth of a degree of north, so calling them east/north would read as true here and
+    quietly mislabel the diagnostic on any table turned against north.
     """
     x, y = float(at_pixel[0]), float(at_pixel[1])
-    origin, one_pixel_east, one_pixel_north = project_pixels_to_utm(
+    origin, one_pixel_x, one_pixel_y = project_pixels_to_utm(
         homography, np.array([[x, y], [x + 1.0, y], [x, y + 1.0]], dtype=np.float64)
     )
     return (
-        float(np.hypot(*(one_pixel_east - origin))),
-        float(np.hypot(*(one_pixel_north - origin))),
+        float(np.hypot(*(one_pixel_x - origin))),
+        float(np.hypot(*(one_pixel_y - origin))),
     )
 
 
@@ -175,8 +180,8 @@ def metres_per_table_pixel(
     right *size* even though a 3.5%-anisotropic map cannot make it the right size on both axes at
     once. An arithmetic mean would leave the area systematically large.
     """
-    east_metres, north_metres = axis_metres_per_table_pixel(homography, at_pixel)
-    return float(math.sqrt(east_metres * north_metres))
+    x_metres, y_metres = axis_metres_per_table_pixel(homography, at_pixel)
+    return float(math.sqrt(x_metres * y_metres))
 
 
 def direction_through_homography(

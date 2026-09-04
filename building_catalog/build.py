@@ -45,7 +45,7 @@ from hud import draw_monitor_window, draw_status_window
 from calibration_contract import MAP_CALIBRATION_MARKER_IDS
 from marker import IGNORED_MARKER_ID, map_detected_markers
 from physical_building_catalog import (
-    alignment_is_verified,
+    building_calibration_of,
     catalog_entry,
     load_catalog,
     marker_index,
@@ -252,8 +252,47 @@ ALIGNMENT_NOT_MEASURED_NOTICE = """
 
 
 def print_alignment_not_measured(building_id: str, print_fn=print) -> None:
-    """Tell the operator, at the table, that the building they just registered is unaligned."""
+    """Tell the operator, at the table, that the building they just registered is unaligned.
+
+    Unconditional on a fresh registration rather than guarded by `alignment_is_verified`, because
+    that guard would be a tautology: `catalog_entry` never emits a `calibration` block, so a
+    just-built entry is unaligned by construction and the check could only ever say yes.
+    """
     print_fn(ALIGNMENT_NOT_MEASURED_NOTICE.format(building_id=building_id))
+
+
+#: What re-registering a building throws away.
+#:
+#: `rotation_offset_deg` is the residual between the *stored reference heading* and the real
+#: building's heading. Re-registration captures a new reference from wherever the block is lying
+#: now, so the old offset is measured against a heading that no longer exists: carrying it forward
+#: would be worse than dropping it, because it would look like a live measurement while being
+#: silently wrong by however far the block moved between the two sittings.
+#:
+#: So it is dropped -- but said out loud. Dropping it quietly is the same conflation of "measured"
+#: and "never measured" one level up from the one this whole change exists to end: the generic
+#: "not measured" banner alone reads identically whether the operator is registering a building
+#: for the first time or has just destroyed a calibration they spent a sitting on.
+ALIGNMENT_DISCARDED_NOTICE = """
+  !! {building_id} had a measured alignment, and re-registering has discarded it.
+
+     Previous rotation_offset_deg : {rotation_offset_deg:+.3f} deg
+     Previous offset east / north : {offset_east_m:+.3f} / {offset_north_m:+.3f} m
+     Previous scale residual      : {scale_residual:.4f}
+
+     These were residuals against the OLD reference heading. This registration captured a new
+     one, so they no longer describe anything and cannot be carried over. Write them down if
+     you want to compare, then measure the alignment again.
+"""
+
+
+def print_alignment_discarded(
+    building_id: str, calibration: dict, print_fn=print
+) -> None:
+    """Say which measured calibration a re-registration has just invalidated."""
+    print_fn(
+        ALIGNMENT_DISCARDED_NOTICE.format(building_id=building_id, **calibration)
+    )
 
 
 def ensure_markers_are_unique(
@@ -315,6 +354,8 @@ def build_catalog(args: argparse.Namespace) -> None:
             if existing is not None and not confirm_replace(building_id, existing["marker_ids"], marker_ids):
                 print("Skipped; existing record was not changed.")
                 continue
+            # Read before the entry is replaced -- afterwards there is nothing left to report.
+            discarded = building_calibration_of(existing) if existing is not None else None
 
             try:
                 ensure_markers_are_unique(catalog, building_id, marker_ids)
@@ -332,8 +373,9 @@ def build_catalog(args: argparse.Namespace) -> None:
                 f"Saved {building_id} -> {marker_ids}, reference rotations "
                 f"{marker_reference_rotations} ({len(catalog['buildings'])} catalog buildings)"
             )
-            if not alignment_is_verified(entry):
-                print_alignment_not_measured(building_id)
+            if discarded is not None and discarded["rotation_offset_deg"] is not None:
+                print_alignment_discarded(building_id, discarded)
+            print_alignment_not_measured(building_id)
     finally:
         stop_event.set()
         detection_thread.join(timeout=2)
