@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 
 import cv2
@@ -15,6 +16,15 @@ TODO server py to listen to frontend for messages
 
 # EPSG:25832 = ETRS89 / UTM zone 32N, which covers Hamburg/Germany.
 _WGS84_TO_UTM = Transformer.from_crs("EPSG:4326", "EPSG:25832", always_xy=True)
+
+#: The baseline `direction_through_homography` measures a direction over, in table pixels.
+#:
+#: Long enough that the float64 UTM difference carries plenty of significant digits (one pixel is
+#: ~0.33 m, so ten is ~3.3 m against coordinates de-meaned to the calibrated quad), and short
+#: enough that the secant still describes the homography *at* the marker rather than averaged
+#: across the table. It is also about the size of a real marker edge, which is the thing the
+#: angle actually came from.
+DIRECTION_PROBE_PIXELS = 10.0
 
 
 @dataclass
@@ -122,22 +132,93 @@ def project_pixel_to_utm(homography: BasemapHomography, pixel_position: tuple[fl
     )
 
 
+def axis_metres_per_table_pixel(
+    homography: BasemapHomography, at_pixel: tuple[float, float]
+) -> tuple[float, float]:
+    """How many real-world metres one table pixel spans at `at_pixel`, per axis.
+
+    Read straight off the homography as |H(x + 1, y) - H(x, y)| and |H(x, y + 1) - H(x, y)| in
+    UTM metres, so it needs no knowledge of the AOI, the table's physical size, or anything the
+    frontend sends.
+
+    Returned as a pair rather than collapsed here because the two numbers are not the same and
+    the difference is itself a diagnostic: on the 2026-09-04 rig they came out 0.3297 and 0.3420
+    m/px, a ratio of 0.9641. A projection that is 3.5% out of square is a projector or AOI
+    problem, and a caller that wants to notice it needs to see both.
+    """
+    x, y = float(at_pixel[0]), float(at_pixel[1])
+    origin, one_pixel_east, one_pixel_north = project_pixels_to_utm(
+        homography, np.array([[x, y], [x + 1.0, y], [x, y + 1.0]], dtype=np.float64)
+    )
+    return (
+        float(np.hypot(*(one_pixel_east - origin))),
+        float(np.hypot(*(one_pixel_north - origin))),
+    )
+
+
 def metres_per_table_pixel(
     homography: BasemapHomography, at_pixel: tuple[float, float]
 ) -> float:
-    """How many real-world metres one table pixel spans at `at_pixel`.
+    """How many real-world metres one table pixel spans at `at_pixel`, over both axes.
 
-    Read straight off the homography as |H(x + 1, y) - H(x, y)| in UTM metres, so it needs no
-    knowledge of the AOI, the table's physical size, or anything the frontend sends. Measured
-    along the pixel-x axis: the AOI is aspect-locked to the table by construction
-    (`collabScenario.viewfinderScreenCorners`), so the two axes carry the same scale, and a
-    single-axis probe keeps the number one thing rather than an average of two.
+    The *geometric* mean of the two axis scales (see `axis_metres_per_table_pixel`), not the x
+    axis alone. This used to probe only pixel-x, on the stated grounds that "the AOI is
+    aspect-locked to the table by construction, so the two axes carry the same scale". Measured on
+    the real rig that claim is false: |dx|/|dy| = 0.9641, a 3.5% disagreement, which made
+    `ground_scale` -- and therefore every building's `model_scale_factor` -- systematically wrong
+    by ~1.8% against the mean and by up to 3.6% against whichever axis the operator happened to
+    be measuring with a ruler.
+
+    Geometric rather than arithmetic mean because this number is used as a single isotropic
+    factor for a two-dimensional drawing: sqrt(|dx| * |dy|) is the side of the square with the
+    same area as the real dx-by-dy parallelogram, so a footprint drawn with it comes out the
+    right *size* even though a 3.5%-anisotropic map cannot make it the right size on both axes at
+    once. An arithmetic mean would leave the area systematically large.
+    """
+    east_metres, north_metres = axis_metres_per_table_pixel(homography, at_pixel)
+    return float(math.sqrt(east_metres * north_metres))
+
+
+def direction_through_homography(
+    homography: BasemapHomography,
+    at_pixel: tuple[float, float],
+    table_direction_degrees: float,
+    probe_pixels: float = DIRECTION_PROBE_PIXELS,
+) -> float:
+    """Where a table-frame direction at `at_pixel` actually points on the ground, in degrees.
+
+    Both angles are counter-clockwise-positive: `table_direction_degrees` is measured from the
+    table's +x pixel axis (what `detection.normalizeCorners` reports), and the result is measured
+    from UTM east, which is the frame `physical_building_catalog.place_geometry` rotates in.
+
+    This is the missing call, not missing data. The pipeline projects marker *points* through the
+    homography and then copies the marker's *angle* across as a bare `atan2` scalar -- correct
+    only if the map were a pure similarity transform of the table. It is not: the 2026-09-04 rig
+    measured 0.42 degrees of axis-squareness error and 3.5% anisotropy, which together move a
+    carried-across angle by up to 1.8 degrees, varying with both heading and position, so no
+    constant `rotation_offset_deg` can absorb it. Pushing two points through instead of one
+    number closes the sign question, the table-to-north tilt, the shear and the anisotropy at
+    once, and leaves no magic constant behind: the answer is whatever the homography says.
+
+    Implemented as a finite difference over `probe_pixels` rather than by differentiating the
+    matrix because a homography is only locally linear -- the secant over a short baseline is the
+    direction a *real* marker edge of that length would map to, which is the thing being asked
+    about.
     """
     x, y = float(at_pixel[0]), float(at_pixel[1])
-    origin, one_pixel_east = project_pixels_to_utm(
-        homography, np.array([[x, y], [x + 1.0, y]], dtype=np.float64)
+    angle = math.radians(float(table_direction_degrees))
+    origin, probe = project_pixels_to_utm(
+        homography,
+        np.array(
+            [
+                [x, y],
+                [x + probe_pixels * math.cos(angle), y + probe_pixels * math.sin(angle)],
+            ],
+            dtype=np.float64,
+        ),
     )
-    return float(np.hypot(*(one_pixel_east - origin)))
+    east, north = probe - origin
+    return math.degrees(math.atan2(float(north), float(east)))
 
 
 def ground_scale(homography: BasemapHomography) -> float:

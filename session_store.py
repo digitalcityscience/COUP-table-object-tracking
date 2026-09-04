@@ -54,21 +54,31 @@ _TABLE_POSITION_GRAIN_PX = 1.0
 #: a day's AOIs apart and short enough to read out of a log line or a filename.
 _AOI_HASH_LENGTH = 8
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS sessions (
-    id           TEXT PRIMARY KEY,
-    created_at   TEXT NOT NULL,
-    aoi_corners  TEXT NOT NULL,
-    ground_scale REAL NOT NULL,
-    homography   TEXT NOT NULL,
-    global_k     REAL NOT NULL
-);
+#: The `session_buildings` columns, in order, named once so the schema, the rebuild migration's
+#: INSERT and its SELECT cannot drift apart -- a reordered column list in a table rebuild silently
+#: shuffles every stored measurement into the wrong field.
+_SESSION_BUILDING_COLUMNS = (
+    "session_id",
+    "building_id",
+    "marker_id",
+    "rotation_offset_deg",
+    "offset_east_m",
+    "offset_north_m",
+    "scale_residual",
+    "table_x_px",
+    "table_y_px",
+    "recorded_at",
+)
 
+#: `rotation_offset_deg` is deliberately the one nullable measurement column -- see
+#: `BuildingCalibration`. It was `NOT NULL` until 2026-09-04, so `_migrate_schema` rebuilds any
+#: file written before then.
+_SESSION_BUILDINGS_TABLE = """
 CREATE TABLE IF NOT EXISTS session_buildings (
     session_id          TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     building_id         TEXT NOT NULL,
     marker_id           INTEGER NOT NULL,
-    rotation_offset_deg REAL NOT NULL,
+    rotation_offset_deg REAL,
     offset_east_m       REAL NOT NULL,
     offset_north_m      REAL NOT NULL,
     scale_residual      REAL NOT NULL,
@@ -78,6 +88,22 @@ CREATE TABLE IF NOT EXISTS session_buildings (
     PRIMARY KEY (session_id, building_id, marker_id, table_x_px, table_y_px)
 );
 """
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sessions (
+    id           TEXT PRIMARY KEY,
+    created_at   TEXT NOT NULL,
+    aoi_corners  TEXT NOT NULL,
+    ground_scale REAL NOT NULL,
+    homography   TEXT NOT NULL,
+    global_k     REAL NOT NULL
+);
+""" + _SESSION_BUILDINGS_TABLE
+
+
+def _nullable_float(value: float | None) -> float | None:
+    """A float, or `None` passed straight through — see `BuildingCalibration`."""
+    return None if value is None else float(value)
 
 
 def _quantised_table_position(value: float) -> float:
@@ -141,16 +167,59 @@ class BuildingCalibration:
     local frame (they turn with the block, not with the compass), `rotation_offset_deg` is added
     on top of `detected_rotation - marker_reference_rotation`, and `scale_residual` multiplies
     the session's `global_k` for this one building.
+
+    `rotation_offset_deg` is `None` when the building's absolute heading has never been verified
+    (see `physical_building_catalog.UNMEASURED_ROTATION_OFFSET`). Nullable rather than defaulted
+    to zero because this table is the input to the global fit: a row asserting a measured zero
+    for a building nobody ever aligned would be weighted equally with real measurements and pull
+    the fit towards a heading that was never observed. An operator saving only an east/west nudge
+    on an unaligned building files exactly that row, so this is the normal case, not an edge one.
     """
 
     building_id: str
     marker_id: int
-    rotation_offset_deg: float
+    rotation_offset_deg: float | None
     offset_east_m: float
     offset_north_m: float
     scale_residual: float
     table_x_px: float
     table_y_px: float
+
+
+def _migrate_schema(connection: sqlite3.Connection) -> None:
+    """Bring a store file written by an older build up to the current schema.
+
+    Runs on every open, and is a no-op on a file that is already current, so there is no version
+    column to keep honest and no way to open a stale file by forgetting a step.
+
+    The one migration so far: `rotation_offset_deg` was `NOT NULL`, which quietly made it
+    impossible to file the now-normal measurement "this operator nudged the east offset on a
+    building whose heading has never been verified". SQLite cannot drop a NOT NULL in place, so
+    the table is rebuilt. Foreign keys are suspended across the rebuild because
+    `session_buildings` references `sessions`, and re-enabled straight after -- `PRAGMA
+    foreign_keys` is a no-op inside a transaction, hence the explicit statements around the
+    transaction rather than inside it.
+    """
+    columns = {row["name"]: row for row in connection.execute("PRAGMA table_info(session_buildings)")}
+    rotation_column = columns.get("rotation_offset_deg")
+    if rotation_column is None or not rotation_column["notnull"]:
+        return
+
+    column_list = ", ".join(_SESSION_BUILDING_COLUMNS)
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        with connection:
+            connection.executescript(
+                f"""
+                ALTER TABLE session_buildings RENAME TO session_buildings_superseded;
+                {_SESSION_BUILDINGS_TABLE}
+                INSERT INTO session_buildings ({column_list})
+                    SELECT {column_list} FROM session_buildings_superseded;
+                DROP TABLE session_buildings_superseded;
+                """
+            )
+    finally:
+        connection.execute("PRAGMA foreign_keys = ON")
 
 
 class SessionStore:
@@ -169,6 +238,7 @@ class SessionStore:
         if not self._schema_ready:
             with connection:
                 connection.executescript(_SCHEMA)
+            _migrate_schema(connection)
             self._schema_ready = True
         return connection
 
@@ -242,7 +312,7 @@ class SessionStore:
                     session_id,
                     calibration.building_id,
                     int(calibration.marker_id),
-                    float(calibration.rotation_offset_deg),
+                    _nullable_float(calibration.rotation_offset_deg),
                     float(calibration.offset_east_m),
                     float(calibration.offset_north_m),
                     float(calibration.scale_residual),

@@ -44,7 +44,13 @@ from detection import detect_markers
 from hud import draw_monitor_window, draw_status_window
 from calibration_contract import MAP_CALIBRATION_MARKER_IDS
 from marker import IGNORED_MARKER_ID, map_detected_markers
-from physical_building_catalog import catalog_entry, load_catalog, marker_index, save_catalog
+from physical_building_catalog import (
+    alignment_is_verified,
+    catalog_entry,
+    load_catalog,
+    marker_index,
+    save_catalog,
+)
 
 
 DEFAULT_SOURCE = SCRIPT_DIR / "buildings_all.geojson"
@@ -218,6 +224,38 @@ def observe_marker_ids(
     return sorted(observe_marker_reference_rotations(marker_snapshots, sample_count))
 
 
+#: What registration actually captured, spelled out at the moment it happens.
+#:
+#: Registration records the heading the block *happened to be lying at*, and until 2026-09-04 the
+#: system then treated that heading as the building's true-north orientation without ever saying
+#: so -- the D1 bug. The maths is exact (with `detected == reference` the drawn footprint lands on
+#: the catalog's real heading to within 0.000 degrees), which is precisely why the unchecked
+#: assumption underneath it was invisible: every registration looked perfect and every building
+#: could still be turned by up to 180 degrees.
+#:
+#: Printed rather than merely stored because the operator is standing at the table with the block
+#: in their hand right now. This is the one moment the measurement below costs nothing.
+ALIGNMENT_NOT_MEASURED_NOTICE = """
+  !! {building_id}: absolute alignment NOT measured.
+
+     Registration recorded the heading this block was lying at just now and nothing has
+     checked that it is the direction the real building faces. {building_id} will draw, but
+     it may be turned by a constant of up to 180 deg, and it is flagged `alignment_verified:
+     false` everywhere until measured.
+
+     To measure it, once, while the rig is up:
+       1. Turn the block until the projected polygon sits on top of the real building
+          in the basemap underneath it.
+       2. Read the `rotation` the panel reports for {building_id} at that moment.
+       3. Save `rotation_offset_deg` = -(that value) from the panel.
+"""
+
+
+def print_alignment_not_measured(building_id: str, print_fn=print) -> None:
+    """Tell the operator, at the table, that the building they just registered is unaligned."""
+    print_fn(ALIGNMENT_NOT_MEASURED_NOTICE.format(building_id=building_id))
+
+
 def ensure_markers_are_unique(
     catalog: dict[str, Any], building_id: str, marker_ids: list[int]
 ) -> None:
@@ -294,6 +332,8 @@ def build_catalog(args: argparse.Namespace) -> None:
                 f"Saved {building_id} -> {marker_ids}, reference rotations "
                 f"{marker_reference_rotations} ({len(catalog['buildings'])} catalog buildings)"
             )
+            if not alignment_is_verified(entry):
+                print_alignment_not_measured(building_id)
     finally:
         stop_event.set()
         detection_thread.join(timeout=2)

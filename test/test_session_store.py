@@ -317,3 +317,99 @@ def test_building_rows_come_back_in_a_stable_order(tmp_path):
         "G11",
         "G17",
     ]
+
+
+# --- an unmeasured heading is a row too -------------------------------------------------
+
+
+def test_a_measurement_can_be_filed_for_a_building_whose_heading_was_never_verified(tmp_path):
+    """The normal case, not an edge one: nudging the east offset says nothing about the heading.
+
+    `rotation_offset_deg` was `NOT NULL`, so the only way to file this row at all was to invent a
+    measured zero for a heading nobody had looked at -- and this table is the input to the global
+    fit, which would then weight that invention equally with a real measurement.
+    """
+    store = _store(tmp_path)
+    session_id = _begin(store)
+
+    store.record_building(session_id, _calibration(rotation_offset_deg=None, offset_east_m=0.35))
+
+    (row,) = store.session_buildings(session_id)
+    assert row["rotation_offset_deg"] is None
+    assert row["offset_east_m"] == pytest.approx(0.35)
+
+
+def test_a_store_written_before_the_heading_could_be_unmeasured_is_migrated(tmp_path):
+    """An existing rig file was written with `rotation_offset_deg REAL NOT NULL`.
+
+    SQLite cannot drop a NOT NULL in place, so the table is rebuilt on open. The rows already in
+    it have to survive that rebuild in the right columns -- a reordered column list in a table
+    copy silently shuffles every stored measurement one field sideways.
+    """
+    path = tmp_path / "calibration_sessions.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE sessions (
+                id           TEXT PRIMARY KEY,
+                created_at   TEXT NOT NULL,
+                aoi_corners  TEXT NOT NULL,
+                ground_scale REAL NOT NULL,
+                homography   TEXT NOT NULL,
+                global_k     REAL NOT NULL
+            );
+            CREATE TABLE session_buildings (
+                session_id          TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                building_id         TEXT NOT NULL,
+                marker_id           INTEGER NOT NULL,
+                rotation_offset_deg REAL NOT NULL,
+                offset_east_m       REAL NOT NULL,
+                offset_north_m      REAL NOT NULL,
+                scale_residual      REAL NOT NULL,
+                table_x_px          REAL NOT NULL,
+                table_y_px          REAL NOT NULL,
+                recorded_at         TEXT NOT NULL,
+                PRIMARY KEY (session_id, building_id, marker_id, table_x_px, table_y_px)
+            );
+            INSERT INTO sessions VALUES
+                ('20260903-abcd1234', '2026-09-03T14:05:00', '[[10.0, 53.0]]', 327.0, '[[1.0]]', 0.654);
+            INSERT INTO session_buildings VALUES
+                ('20260903-abcd1234', 'G07', 12, -2.5, 0.35, -0.12, 1.01, 811.0, 405.0,
+                 '2026-09-03T14:06:00');
+            """
+        )
+
+    store = SessionStore(path)
+    (existing,) = store.session_buildings("20260903-abcd1234")
+
+    assert existing["building_id"] == "G07"
+    assert existing["marker_id"] == 12
+    assert existing["rotation_offset_deg"] == pytest.approx(-2.5)
+    assert existing["offset_east_m"] == pytest.approx(0.35)
+    assert existing["offset_north_m"] == pytest.approx(-0.12)
+    assert existing["scale_residual"] == pytest.approx(1.01)
+    assert existing["table_x_px"] == pytest.approx(811.0)
+    assert existing["table_y_px"] == pytest.approx(405.0)
+    assert existing["recorded_at"] == "2026-09-03T14:06:00"
+
+    store.record_building(
+        "20260903-abcd1234",
+        _calibration(building_id="G17", marker_id=24, rotation_offset_deg=None),
+    )
+    assert [row["rotation_offset_deg"] for row in store.session_buildings("20260903-abcd1234")] == [
+        pytest.approx(-2.5),
+        None,
+    ]
+
+
+def test_migrating_an_already_current_store_is_a_no_op(tmp_path):
+    """It runs on every open, so it has to be safe to run on a file that has already had it."""
+    store = _store(tmp_path)
+    session_id = _begin(store)
+    store.record_building(session_id, _calibration(rotation_offset_deg=-2.5))
+
+    reopened = SessionStore(store.path)
+
+    assert [row["rotation_offset_deg"] for row in reopened.session_buildings(session_id)] == [
+        pytest.approx(-2.5)
+    ]

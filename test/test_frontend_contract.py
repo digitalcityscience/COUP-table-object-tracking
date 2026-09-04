@@ -18,7 +18,7 @@ import server
 from calibration_contract import MAP_CALIBRATION_MARKER_CORNERS
 from marker import Marker, Markers
 from physical_building_catalog import MODEL_SCALE
-from pixel_to_utm import ground_scale
+from pixel_to_utm import direction_through_homography, ground_scale
 from session_store import SessionStore
 
 websockets = pytest.importorskip("websockets")
@@ -250,6 +250,74 @@ async def test_clearing_the_calibration_drops_the_model_scale_factor_with_it():
         assert server.global_model_scale_factor is not None
         await session.send(CONTRACT["frontend_to_backend"]["clear_calibration"])
         assert server.global_model_scale_factor is None
+
+
+@pytest.mark.asyncio
+async def test_every_building_says_whether_its_heading_was_ever_verified():
+    """D1 on the wire: the frontend cannot mark what the server never tells it.
+
+    None of the three registered buildings has had its absolute heading checked, so the honest
+    answer today is `false` for every one of them -- and the point of the property is that the
+    projection can say so instead of drawing a guess exactly like a measurement.
+    """
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        message = await session.push(_rig_snapshot())
+
+    assert message["features"], "no building features to check"
+    for feature in message["features"]:
+        assert feature["properties"]["alignment_verified"] is False
+        assert feature["properties"]["calibration"]["rotation_offset_deg"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_published_heading_is_the_one_the_homography_gives():
+    """D2 on the wire: the angle is pushed through the homography, not copied past it.
+
+    Recomputed here from the accepted homography and the catalog's own stored reference, at the
+    marker's own table pixel -- so this fails both if the conversion is dropped and if it is
+    applied to only one of the two angles, which would leave the table's own tilt in the answer.
+    """
+    from physical_building_catalog import marker_index
+
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        message = await session.push(_rig_snapshot())
+        homography = server.basemap_homography
+        building = marker_index(server.physical_building_catalog)[12]
+
+    (feature,) = [f for f in message["features"] if f["properties"]["marker_id"] == 12]
+    table_pixel = (feature["properties"]["table_x_px"], feature["properties"]["table_y_px"])
+    reference = float(building["marker_reference_rotations"]["12"])
+    expected = (
+        direction_through_homography(homography, table_pixel, 12.5)
+        - direction_through_homography(homography, table_pixel, reference)
+        + 180.0
+    ) % 360.0 - 180.0
+
+    assert feature["properties"]["rotation"] == pytest.approx(expected, abs=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_the_homography_actually_changes_the_heading():
+    """Guards against a conversion that is wired in but silently the identity.
+
+    The rig's map is 0.42 degrees out of square and 3.5% anisotropic, so a real conversion must
+    move the answer off the bare scalar difference -- while staying close enough to it that a
+    wildly wrong wiring (a sign flip, a swapped axis) would not pass either.
+    """
+    from physical_building_catalog import marker_index
+
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        message = await session.push(_rig_snapshot())
+        building = marker_index(server.physical_building_catalog)[12]
+
+    (feature,) = [f for f in message["features"] if f["properties"]["marker_id"] == 12]
+    scalar = (12.5 - float(building["marker_reference_rotations"]["12"]) + 180.0) % 360.0 - 180.0
+    difference = abs(feature["properties"]["rotation"] - scalar)
+
+    assert 0 < difference < 5.0
 
 
 @pytest.fixture

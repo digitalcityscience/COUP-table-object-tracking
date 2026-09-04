@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from physical_building_catalog import (
     BUILDING_CALIBRATION_FIELDS,
     DEFAULT_BUILDING_CALIBRATION,
+    alignment_is_verified,
     apply_building_calibration,
     building_calibration_of,
     calibration_as_message_fields,
@@ -123,8 +124,13 @@ def test_the_stored_calibration_round_trips_back_into_the_message_s_units():
 
 
 def test_an_uncalibrated_building_reports_a_neutral_message_calibration():
+    """Neutral on the three fields that have a neutral value, and *empty* on the one that has not.
+
+    `rotation_offset_deg` comes across as null rather than `0.0` so the panel opens its rotation
+    control blank and labelled instead of showing a confident zero nobody measured.
+    """
     assert calibration_as_message_fields(_entry()) == {
-        "rotation_offset_deg": 0.0,
+        "rotation_offset_deg": None,
         "offset_east_mm": 0.0,
         "offset_north_mm": 0.0,
         "scale_residual": 1.0,
@@ -138,7 +144,7 @@ def test_a_fresh_catalog_entry_has_a_neutral_calibration():
     """An uncalibrated building must draw exactly as it did before this step existed."""
     assert building_calibration_of(_entry()) == DEFAULT_BUILDING_CALIBRATION
     assert DEFAULT_BUILDING_CALIBRATION == {
-        "rotation_offset_deg": 0.0,
+        "rotation_offset_deg": None,
         "offset_east_m": 0.0,
         "offset_north_m": 0.0,
         "scale_residual": 1.0,
@@ -171,7 +177,7 @@ def test_applying_a_calibration_does_not_mutate_the_entry_it_was_given():
 
     apply_building_calibration(entry, {"rotation_offset_deg": -2.5})
 
-    assert building_calibration_of(entry)["rotation_offset_deg"] == pytest.approx(0.0)
+    assert building_calibration_of(entry)["rotation_offset_deg"] is None
 
 
 def test_an_unknown_calibration_field_is_refused():
@@ -319,3 +325,129 @@ def test_the_real_catalog_still_loads_without_any_calibration_block():
 
     for building in catalog["buildings"]:
         assert building_calibration_of(building) == DEFAULT_BUILDING_CALIBRATION
+
+
+# --- D1: a measured zero and an unmeasured heading are not the same thing ----------------
+
+
+def test_a_freshly_registered_building_reports_its_alignment_as_unverified():
+    """The D1 bug: registration declares the block's random resting heading to be true north.
+
+    The maths downstream is exact, which is what made this invisible -- every registration looked
+    perfect and every building could still be turned by a constant of up to 180 degrees. Nothing
+    can fix that automatically; the only thing code can do is refuse to keep quiet about it.
+    """
+    assert alignment_is_verified(_entry()) is False
+    assert building_feature(_entry(), 24, (10.0, 53.0), 0.0)["properties"][
+        "alignment_verified"
+    ] is False
+
+
+def test_measuring_the_offset_is_what_marks_a_building_aligned():
+    assert alignment_is_verified(_entry(rotation_offset_deg=-2.5)) is True
+    assert building_feature(_entry(rotation_offset_deg=-2.5), 24, (10.0, 53.0), 0.0)[
+        "properties"
+    ]["alignment_verified"] is True
+
+
+def test_a_measured_zero_is_verified_and_an_unmeasured_one_is_not():
+    """The whole point of the None: `0.0` used to mean both of these at once."""
+    assert alignment_is_verified(_entry(rotation_offset_deg=0.0)) is True
+    assert alignment_is_verified(_entry()) is False
+
+
+def test_nudging_another_axis_does_not_silently_claim_the_heading_was_measured():
+    """An operator saving an east offset has not looked at which way the building faces."""
+    nudged = _entry(offset_east_m=0.35)
+
+    assert alignment_is_verified(nudged) is False
+    assert building_calibration_of(nudged)["offset_east_m"] == pytest.approx(0.35)
+
+
+def test_an_unverified_building_still_draws_and_applies_no_rotation_offset():
+    """Refusing to draw would be worse than drawing a marked, suspect footprint."""
+    unverified = building_feature(_entry(), 24, (10.0, 53.0), 30.0)
+    zeroed = building_feature(_entry(rotation_offset_deg=0.0), 24, (10.0, 53.0), 30.0)
+
+    assert unverified["properties"]["rotation"] == pytest.approx(30.0)
+    assert unverified["geometry"] == zeroed["geometry"]
+
+
+def test_a_building_can_be_put_back_to_unmeasured():
+    """The panel needs a way to retract a claim, and `float(None)` would record a measured zero."""
+    entry = _entry(rotation_offset_deg=-2.5)
+
+    retracted = apply_building_calibration(
+        entry, calibration_from_message({"rotation_offset_deg": None})
+    )
+
+    assert alignment_is_verified(retracted) is False
+
+
+def test_the_unmeasured_heading_survives_a_save_and_reload(tmp_path):
+    """A stored `null` and a missing key must read back the same, or a restart re-hides the gap."""
+    path = tmp_path / "physical-building-catalog.json"
+    catalog = empty_catalog()
+    catalog["buildings"].append(_entry(offset_east_m=0.35))
+
+    save_catalog(path, catalog)
+    reloaded = load_catalog(path)
+
+    assert alignment_is_verified(reloaded["buildings"][0]) is False
+
+
+def test_the_three_registered_buildings_are_all_still_unaligned():
+    """Documents the actual state of the rig: no absolute heading has ever been verified."""
+    catalog = load_catalog(Path(__file__).resolve().parents[1] / "physical-building-catalog.json")
+
+    assert [building["building_id"] for building in catalog["buildings"] if not alignment_is_verified(building)] == [
+        building["building_id"] for building in catalog["buildings"]
+    ]
+
+
+# --- D2: the heading goes through the homography, not around it -------------------------
+
+
+def test_the_detected_angle_and_its_reference_go_through_the_same_conversion():
+    """Converting only the detected angle would subtract two numbers from different frames.
+
+    `build.py` records `marker_reference_rotations` in raw table-pixel degrees -- it has no
+    homography to consult. So a conversion applied to the detected heading alone injects the
+    table's own tilt as a fresh systematic error, and forces every registered reference to be
+    migrated. Running both through the same callable makes the difference the real local
+    world-frame angle and leaves the stored references valid as they stand.
+    """
+    entry = catalog_entry(_feature(), [24], {24: 10.0})
+    seen = []
+
+    def to_map(table_degrees):
+        seen.append(table_degrees)
+        return table_degrees + 3.0  # a pure rotation: it must cancel out of the difference
+
+    result = building_feature(entry, 24, (10.0, 53.0), 40.0, table_direction_to_map=to_map)
+
+    assert seen == [40.0, 10.0]
+    assert result["properties"]["rotation"] == pytest.approx(30.0)
+
+
+def test_a_non_rotational_conversion_reaches_the_drawn_rotation():
+    """The 1.5 degrees D2 buys: shear and anisotropy do *not* cancel out of the difference."""
+    entry = catalog_entry(_feature(), [24], {24: 0.0})
+
+    result = building_feature(
+        entry, 24, (10.0, 53.0), 90.0, table_direction_to_map=lambda deg: deg * 1.02
+    )
+
+    assert result["properties"]["rotation"] == pytest.approx(91.8)
+
+
+def test_omitting_the_conversion_leaves_the_scalar_path_exactly_as_it_was():
+    """The seam has to be free for every caller that has no homography, including the tests."""
+    entry = catalog_entry(_feature(), [24], {24: 10.0})
+
+    assert (
+        building_feature(entry, 24, (10.0, 53.0), 40.0)["geometry"]
+        == building_feature(
+            entry, 24, (10.0, 53.0), 40.0, table_direction_to_map=lambda deg: deg
+        )["geometry"]
+    )

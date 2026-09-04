@@ -127,6 +127,9 @@ def test_g17_marker_24_end_to_end():
         "center": [9.99, 53.55],
         "rotation": pytest.approx(32),
         "model_scale_factor": 1.0,
+        # G17 was registered at whatever heading its block was lying at and nobody has since
+        # checked that against the real building, so the runtime feature says so.
+        "alignment_verified": False,
         "bbox": result["properties"]["bbox"],
     }
     assert result["geometry"]["type"] == "Polygon"

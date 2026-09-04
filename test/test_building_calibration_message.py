@@ -15,6 +15,7 @@ import pytest
 import server
 from marker import Marker, Markers
 from physical_building_catalog import (
+    alignment_is_verified,
     building_calibration_of,
     load_catalog,
     save_catalog,
@@ -270,7 +271,7 @@ async def test_a_calibration_sent_before_the_handshake_is_refused(rig):
 
     catalog = load_catalog(rig.working_catalog_path)
     (building,) = [b for b in catalog["buildings"] if b["building_id"] == _BUILDING_ID]
-    assert building_calibration_of(building)["rotation_offset_deg"] == pytest.approx(0.0)
+    assert alignment_is_verified(building) is False
 
 
 @pytest.mark.asyncio
@@ -294,7 +295,7 @@ async def test_a_calibration_whose_building_id_contradicts_its_marker_is_refused
     assert rig.store.session_buildings(session_id) == []
     catalog = load_catalog(rig.working_catalog_path)
     for building in catalog["buildings"]:
-        assert building_calibration_of(building)["rotation_offset_deg"] == pytest.approx(0.0)
+        assert alignment_is_verified(building) is False
 
 
 @pytest.mark.asyncio
@@ -306,7 +307,7 @@ async def test_a_calibration_with_an_unknown_field_is_refused_whole(rig):
 
     catalog = load_catalog(rig.working_catalog_path)
     (building,) = [b for b in catalog["buildings"] if b["building_id"] == _BUILDING_ID]
-    assert building_calibration_of(building)["rotation_offset_deg"] == pytest.approx(0.0)
+    assert alignment_is_verified(building) is False
 
 
 @pytest.mark.asyncio

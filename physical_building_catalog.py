@@ -30,15 +30,33 @@ BUILDING_CALIBRATION_FIELDS = (
     "scale_residual",
 )
 
+#: What an unmeasured absolute alignment is, as distinct from a measured zero. `0.0` used to sit
+#: here and it was the D1 bug: "we measured, the offset really is nil" and "nobody has ever
+#: checked which way this block faces" collapsed onto the same number, so a building whose
+#: `marker_reference_rotations` were captured at whatever random heading the block happened to be
+#: lying at during registration drew with a constant error of up to 180 degrees and nothing --
+#: not the catalog, not the feature, not the panel -- said so.
+#:
+#: `None` is a load-bearing value, not a missing one. `building_feature` still draws an
+#: unmeasured building (refusing to draw would be worse), but it applies no offset and stamps
+#: `alignment_verified: false` on the feature so the projection and the panel can mark it.
+UNMEASURED_ROTATION_OFFSET = None
+
 #: What an uncalibrated building means. A true no-op, not an approximate one: the three buildings
 #: registered before this step existed carry no calibration block at all and must keep drawing
 #: byte-identically.
 DEFAULT_BUILDING_CALIBRATION = {
-    "rotation_offset_deg": 0.0,
+    "rotation_offset_deg": UNMEASURED_ROTATION_OFFSET,
     "offset_east_m": 0.0,
     "offset_north_m": 0.0,
     "scale_residual": 1.0,
 }
+
+#: The calibration fields that carry `None` for "not measured yet" rather than a neutral number.
+#: Only the rotation needs it: an unmeasured east/north offset or scale residual genuinely is
+#: neutral (the block is where the marker says it is, at the size the session's scale says), while
+#: an unmeasured *heading* is a claim about the real world that nobody has checked.
+NULLABLE_BUILDING_CALIBRATION_FIELDS = ("rotation_offset_deg",)
 
 #: The scale the physical blocks on the table are milled at: 1:500. The single declared value --
 #: the catalog stores real-world metres and the table map is drawn at whatever ground scale the
@@ -219,12 +237,21 @@ def calibration_from_message(payload: dict[str, Any]) -> dict[str, float]:
     Only the fields the message actually carries, so a save of the one axis the operator touched
     stays a partial update (see `apply_building_calibration`). Millimetre fields are converted
     to catalog metres on the way through; degrees and the scale ratio pass straight along.
+
+    An explicit `null` in a nullable field is carried through as `None` rather than coerced to
+    zero: the panel needs a way to say "I was wrong to claim this was aligned" and put a building
+    back to unmeasured, and `float(None)` would instead record a measured zero -- exactly the
+    conflation this whole distinction exists to end.
     """
-    calibration: dict[str, float] = {}
+    calibration: dict[str, Any] = {}
     for message_field, catalog_field in BUILDING_CALIBRATION_MESSAGE_FIELDS.items():
         if message_field not in payload:
             continue
-        value = float(payload[message_field])
+        raw_value = payload[message_field]
+        if raw_value is None and catalog_field in NULLABLE_BUILDING_CALIBRATION_FIELDS:
+            calibration[catalog_field] = None
+            continue
+        value = float(raw_value)
         calibration[catalog_field] = (
             table_millimetres_to_local_metres(value) if message_field.endswith("_mm") else value
         )
@@ -241,12 +268,16 @@ def calibration_as_message_fields(building: dict[str, Any]) -> dict[str, float]:
 
     Named field-for-field after the message, so the value the panel receives is the value it sends
     back with no conversion of its own -- which is what keeps `MODEL_SCALE` a Python-only number.
+
+    `rotation_offset_deg` comes across as JSON `null` when the building's heading has never been
+    verified, so the panel can open its rotation control empty and labelled rather than showing a
+    confident `0.0` that nobody ever measured.
     """
     stored = building_calibration_of(building)
     return {
         message_field: (
             local_metres_to_table_millimetres(stored[catalog_field])
-            if message_field.endswith("_mm")
+            if message_field.endswith("_mm") and stored[catalog_field] is not None
             else stored[catalog_field]
         )
         for message_field, catalog_field in BUILDING_CALIBRATION_MESSAGE_FIELDS.items()
@@ -258,17 +289,48 @@ def local_metres_to_table_millimetres(metres: float) -> float:
     return metres * 1000 / MODEL_SCALE
 
 
-def building_calibration_of(building: dict[str, Any]) -> dict[str, float]:
+def building_calibration_of(building: dict[str, Any]) -> dict[str, Any]:
     """One building's calibration, defaulted field by field.
 
     Defaulted per field rather than per block, so a catalog entry that has only ever had its
     rotation nudged still reports a neutral offset and scale instead of nothing.
+
+    `rotation_offset_deg` comes back as `None` when it has never been measured (see
+    `UNMEASURED_ROTATION_OFFSET`); every other field is a float. A stored `null` and a missing
+    key mean the same thing, which is what lets an old catalog written before this distinction
+    existed read back as "unmeasured" rather than as "measured, and it was zero".
     """
     stored = building.get("calibration") or {}
-    return {
-        field: float(stored.get(field, DEFAULT_BUILDING_CALIBRATION[field]))
-        for field in BUILDING_CALIBRATION_FIELDS
-    }
+    result: dict[str, Any] = {}
+    for field in BUILDING_CALIBRATION_FIELDS:
+        value = stored.get(field, DEFAULT_BUILDING_CALIBRATION[field])
+        if value is None and field in NULLABLE_BUILDING_CALIBRATION_FIELDS:
+            result[field] = None
+        else:
+            result[field] = float(value)
+    return result
+
+
+def alignment_is_verified(building: dict[str, Any]) -> bool:
+    """Has anyone actually checked which way this building's block faces?
+
+    The single reading of the `None`/number distinction `UNMEASURED_ROTATION_OFFSET` introduces,
+    so "unmeasured" is asked for by name everywhere instead of being re-derived from a null check
+    that is one refactor away from silently becoming `not offset` and treating a measured zero as
+    unmeasured again.
+    """
+    return building_calibration_of(building)["rotation_offset_deg"] is not None
+
+
+def applied_rotation_offset(calibration: dict[str, Any]) -> float:
+    """The degrees a calibration actually contributes to a drawing: 0 when unmeasured.
+
+    An unmeasured building still draws -- it is far more useful on the table with a known-suspect
+    heading than absent -- so the arithmetic needs a number. This is the only place `None` becomes
+    `0.0`, and it is deliberately not the same function that answers "is it verified".
+    """
+    offset = calibration["rotation_offset_deg"]
+    return 0.0 if offset is None else float(offset)
 
 
 def apply_building_calibration(
@@ -288,7 +350,10 @@ def apply_building_calibration(
         )
     merged = building_calibration_of(building)
     for field, value in calibration.items():
-        merged[field] = float(value)
+        if value is None and field in NULLABLE_BUILDING_CALIBRATION_FIELDS:
+            merged[field] = None
+        else:
+            merged[field] = float(value)
     if not merged["scale_residual"] > 0:
         raise ValueError(
             f"scale_residual must be positive, got {merged['scale_residual']!r}"
@@ -368,6 +433,8 @@ def building_feature(
     center: tuple[float, float],
     rotation: float,
     scale: float = 1.0,
+    *,
+    table_direction_to_map=None,
 ) -> dict[str, Any]:
     """The runtime geometry for one detected marker: catalog shape, placed and sized for the map.
 
@@ -383,16 +450,44 @@ def building_feature(
     building's offset would quietly soak up the homography error in its corner of the table and
     be wrong the moment the block was moved.
 
+    `table_direction_to_map` is the D2 fix: a callable that takes one table-frame direction in
+    degrees and returns the map-frame direction it actually points in, by pushing it through the
+    session's homography at this marker's own pixel position (see
+    `pixel_to_utm.direction_through_homography`). The homography is not a rotation -- the rig
+    carries 0.42 degrees of shear and 3.5% anisotropy -- so an angle carried across as a bare
+    scalar is wrong by up to 1.8 degrees in a way that depends on both heading and position, and
+    no constant can absorb it.
+
+    Both the detected angle *and* the stored reference go through it, which is what makes the fix
+    a pure improvement rather than a convention change: the reference was recorded in table-pixel
+    degrees by `build.py` (which has no homography), so converting only the detected angle would
+    subtract two numbers living in different frames and inject the table's own heading as a fresh
+    systematic error. Converting both at the same pixel makes the difference the real, local,
+    world-frame angle between the block's current heading and its reference heading -- and leaves
+    every already-registered reference valid, with no arithmetic migration.
+
+    Left as `None` (the default) the angle is carried across as a scalar exactly as before, which
+    is what keeps this module free of any homography or OpenCV knowledge and testable on its own.
+
     `model_scale_factor` is reported back on the feature so the projected drawing carries the
     number it was actually drawn with -- when a building comes out the wrong size on the table,
     that says whether the scale or the catalog is at fault without reading the server's log.
+
+    `alignment_verified` is reported for D1: false means nobody has ever checked that this
+    building's `marker_reference_rotations` were captured with the block facing the way the
+    catalog thinks it faces, so the footprint below may be turned by a constant of up to 180
+    degrees. It still draws -- it is more useful on the table with a suspect heading than absent
+    -- but the projection and the panel must mark it rather than present it as measured.
     """
     reference_rotation = float(
         building.get("marker_reference_rotations", {}).get(str(marker_id), 0.0)
     )
+    if table_direction_to_map is not None:
+        rotation = table_direction_to_map(rotation)
+        reference_rotation = table_direction_to_map(reference_rotation)
     calibration = building_calibration_of(building)
     effective_rotation = (
-        rotation - reference_rotation + calibration["rotation_offset_deg"] + 180.0
+        rotation - reference_rotation + applied_rotation_offset(calibration) + 180.0
     ) % 360.0 - 180.0
     effective_scale = scale * calibration["scale_residual"]
     geometry = place_geometry(
@@ -411,6 +506,7 @@ def building_feature(
             "center": list(center),
             "rotation": effective_rotation,
             "model_scale_factor": effective_scale,
+            "alignment_verified": alignment_is_verified(building),
             "bbox": geometry_bbox(geometry),
         },
         "geometry": geometry,

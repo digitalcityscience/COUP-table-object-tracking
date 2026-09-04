@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 
 from marker import Markers, map_detected_markers
@@ -24,6 +25,7 @@ from pixel_to_utm import (
     BasemapCalibrationPoint,
     BasemapHomography,
     create_basemap_homography,
+    direction_through_homography,
     ground_scale,
 )
 from table_to_geojson import markers_json_to_geojson
@@ -156,8 +158,21 @@ def markers_to_building_geojson(
         center = tuple(marker_feature["geometry"]["coordinates"])
         table_pixel = (float(properties["table_x_px"]), float(properties["table_y_px"]))
         latest_table_pixel_positions[marker_id] = (*table_pixel, time.time())
+        # D2: the marker's heading goes through the homography instead of being copied across
+        # as a scalar. Bound to *this* marker's own table pixel, because the correction is
+        # position-dependent -- the map is 3.5% anisotropic and 0.42 degrees out of square, so
+        # the same block heading maps to different ground bearings in different corners of the
+        # table. `building_feature` runs the stored reference through the same callable, which is
+        # what keeps every already-registered `marker_reference_rotations` value valid.
         feature = building_feature(
-            building, marker_id, center, float(properties["rotation"]), scale=scale
+            building,
+            marker_id,
+            center,
+            float(properties["rotation"]),
+            scale=scale,
+            table_direction_to_map=partial(
+                direction_through_homography, homography, table_pixel
+            ),
         )
         # The panel's table diagram needs to know which regions of the table have been sampled,
         # and the calibration record needs where each measurement was taken; both read this.
