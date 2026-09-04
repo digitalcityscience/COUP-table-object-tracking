@@ -925,17 +925,25 @@ async def send_tracking_matches_unity(connection):
     back to the server.
 
     The third element of each marker tuple is `detection.normalizeCorners`'s raw table-frame
-    angle, and it CHANGED SIGN on 2026-09-04 when the stray `-1` came out of that function. This
-    path applies no correction of its own -- deliberately: the raw stream is raw, and the
-    homography-aware heading (`markers_to_building_geojson`) only exists once a `map_calibration`
-    has arrived, which a Unity client never sends. So a Unity consumer that rotates its models by
-    `snapshot[id][2]` now turns them the other way than it did before that commit. The same is
-    true of the web client's pre-calibration frames below. Neither consumer lives in this repo,
-    so nothing here can test it; it is called out so the next person to see models spinning
-    backwards finds the reason in one place instead of re-deriving it.
+    angle. It CHANGED SIGN on 2026-09-04 when the stray `-1` came out of that function (the
+    negation dated from a single mirrored camera feed; stitching made it wrong). The web/GeoJSON
+    path picked up the new sign correctly, but `TableInterface.cs` on the Unity side reads
+    `snapshot[id][2]` and feeds it straight into `Quaternion.Euler` with no negation of its own --
+    so after that commit it started spinning models the opposite way from the physical block.
+    This path re-applies the negation *here only* to restore Unity's prior behavior, instead of
+    reverting the fix in `detection.py` (which is correct for the web/homography path). This is a
+    stopgap, not a real fix: it hardcodes a sign for one consumer rather than deriving Unity's
+    heading from the homography the way `markers_to_building_geojson` does for the web path (see
+    D2 / `bearing_through_homography` in the marker-rotation design doc). Remove this negation if
+    Unity is ever migrated onto that homography-derived heading instead of the raw table-frame
+    angle. Untested against a live Unity client -- Unity is not currently an active consumer.
     """
     async def send(snapshot: dict):
-        markers_json = json.dumps(snapshot)
+        unity_snapshot = {
+            marker_id: [*values[:2], -values[2], *values[3:]]
+            for marker_id, values in snapshot.items()
+        }
+        markers_json = json.dumps(unity_snapshot)
         print("Sending to Unity client:", markers_json)
         await loop.sock_sendall(connection, markers_json.encode("utf-8"))
 
