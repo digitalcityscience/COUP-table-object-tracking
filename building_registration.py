@@ -19,10 +19,12 @@ block until it is *parallel* to that projection and confirms. At that instant th
 heading genuinely is the catalog's true-north heading, so the reference is correct by
 construction and `rotation_offset_deg` is a measured `0.0` rather than an unmeasured `None`.
 
-Parallel, not on top of: the reference needs only the angle -- position comes from live tracking
-every frame -- so the block may sit anywhere on the table while being aligned. That is what lets
-an operator register at the left, centre and right of the table in turn and see whether both
-cameras read the same heading.
+On top of *and* parallel. The reference itself needs only the angle -- position comes from live
+tracking every frame -- and for a while the block was allowed to sit anywhere. Identifying the
+block by where it is (`marker_on_target`) changed that: the outline is now how the server knows
+which of the blocks on the table this is, so being on it is no longer optional. The instructions
+the operator reads say so; they used to say the opposite, which meant following them produced a
+refusal.
 """
 
 from __future__ import annotations

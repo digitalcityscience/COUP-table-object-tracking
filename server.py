@@ -266,6 +266,19 @@ def _remember_marker_rotations(snapshot: dict) -> None:
         latest_marker_pixels[marker_id] = (pixel_x, pixel_y, seen_at)
 
 
+def _registration_banner(lines: list[str]) -> str:
+    """`lines` boxed, so a registration's verdict survives this console's own noise.
+
+    The detection loop prints a full GeoJSON dump every 200 ms. A one-line result between two of
+    those is, in practice, invisible to someone standing at the table with a block in their hand,
+    which is the only moment this message is for.
+    """
+    width = max((len(line) for line in lines), default=0)
+    rule = "=" * (width + 4)
+    body = "\n".join(f"| {line.ljust(width)} |" for line in lines)
+    return f"\n{rule}\n{body}\n{rule}\n"
+
+
 def _markers_on_table_message() -> dict:
     """Which markers the cameras can see right now, and which building each already speaks for.
 
@@ -598,7 +611,7 @@ async def handle_web_client(websocket):
          # frontend projects on the table at the building's real heading. Carries no marker id:
          # a building being registered for the first time has no catalog entry, so there is none
          # to send -- the server resolves it as the one marker on the table no building claims.
-         # Parallel, not on top of: the reference needs only the angle, so the block may sit
+         # On top of and parallel: the reference needs only the angle, but the block may sit
          # anywhere, which is what lets an operator check both cameras across the table.
         {"type": "building_calibration", "building_id": "G07", "marker_id": 12,
          # `rotation_offset_deg` is nullable in BOTH directions: Python publishes `null` for a
@@ -727,14 +740,24 @@ async def handle_web_client(websocket):
             elif message_type == "register_building":
                 try:
                     result = _register_building(payload, peer)
-                    print(
-                        f"Registered {result['building_id']} -> marker {result['marker_id']} at "
-                        f"reference rotation {result['reference_rotation_deg']:.3f} deg; run "
-                        "building_catalog/publish-to-runtime.ps1 to make it the next boot default"
-                    )
+                    # Banner rather than one line: this console prints a "Sending to web client"
+                    # dump every 200 ms, so the one message an operator is standing at the table
+                    # waiting for scrolls past unread between two walls of GeoJSON.
+                    print(_registration_banner([
+                        f"REGISTERED {result['building_id']} as marker {result['marker_id']}",
+                        f"reference heading {result['reference_rotation_deg']:.2f} deg "
+                        f"from {result['sample_count']} readings",
+                        "",
+                        "Written to building_catalog/physical-building-catalog.json.",
+                        "Run building_catalog/publish-to-runtime.ps1 to make it the next boot's default.",
+                    ]))
                     await websocket.send(json.dumps(result))
                 except (KeyError, OSError, TypeError, ValueError) as exc:
-                    print(f"Rejected register_building: {exc}")
+                    print(_registration_banner([
+                        f"REGISTRATION REFUSED for {payload.get('building_id')}",
+                        "",
+                        *str(exc).split("; "),
+                    ]))
                     calibration_logger.info(
                         "BUILDING REGISTRATION REJECTED from %s | error=%s | raw_payload=%s",
                         peer,
