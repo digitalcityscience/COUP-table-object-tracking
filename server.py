@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import queue as queue_module
+from collections import defaultdict, deque
 import socket as socket_module
 import signal
 import sys
@@ -41,6 +42,14 @@ from physical_building_catalog import (
     model_scale_factor,
     save_catalog,
 )
+from building_registration import (
+    catalog_with_entry,
+    marker_to_register,
+    reference_rotation_from_samples,
+    registered_entry,
+)
+from calibration_contract import MAP_CALIBRATION_MARKER_IDS
+from marker import IGNORED_MARKER_ID
 from session_store import BuildingCalibration, SessionStore
 import websockets
 
@@ -115,6 +124,26 @@ _warned_unknown_marker_ids: set[int] = set()
 # `session.tracking` could be saved against a position from a previous sitting.
 latest_table_pixel_positions: dict[int, tuple[float, float, float]] = {}
 
+#: Marker ids registration must never offer as a candidate building marker: the four (now nine)
+#: the Table window projects for map calibration, and the sentinel `marker.py` reserves. Derived
+#: from the contracts that own them rather than restated, so growing the calibration grid cannot
+#: silently make one of its markers registerable as a building.
+RESERVED_MARKER_IDS = set(MAP_CALIBRATION_MARKER_IDS) | {IGNORED_MARKER_ID}
+
+#: The source footprints registration builds catalog entries from -- the same file the frontend
+#: bundles and draws its alignment target from, so the heading the operator lines the block up
+#: against and the heading written into the catalog are the same number by construction.
+SOURCE_BUILDINGS_PATH = os.path.join(_SCRIPT_DIR, "building_catalog", "buildings_all.geojson")
+
+#: Recent heading readings per marker, newest last, for registration's circular mean.
+#:
+#: A buffer rather than the latest single frame because one frame of ArUco corner detection
+#: carries a degree or more of noise and the reference is a *permanent* constant -- baking a
+#: single noisy frame into the catalog is exactly the kind of quiet, unfalsifiable error this
+#: flow exists to end. Snapshots arrive every 200 ms, so this holds about six seconds.
+REFERENCE_ROTATION_BUFFER = 30
+recent_marker_rotations: dict[int, deque] = defaultdict(lambda: deque(maxlen=REFERENCE_ROTATION_BUFFER))
+
 # How stale a marker's last table-pixel reading may be before a measurement will not be filed
 # against it. Snapshots arrive every 200 ms, so a couple of seconds is many frames of grace for a
 # briefly occluded marker while still refusing a block that has left the table.
@@ -187,6 +216,87 @@ def markers_to_building_geojson(
         feature["properties"]["calibration"] = calibration_as_message_fields(building)
         features.append(feature)
     return {"type": "FeatureCollection", "features": features}
+
+
+def _remember_marker_rotations(snapshot: dict) -> None:
+    """Keep each marker's recent headings, so a registration can average instead of sampling once.
+
+    Fed from the raw snapshot rather than from `markers_to_building_geojson`, and that is the
+    point: a building being registered for the first time is not in the catalog yet, so the
+    geometry path skips its marker entirely. The one reading registration needs is the one the
+    rest of the pipeline has no reason to keep.
+    """
+    for raw_marker_id, position in snapshot.items():
+        try:
+            marker_id = int(raw_marker_id)
+            rotation = float(position[2])
+        except (TypeError, ValueError, IndexError):
+            continue
+        recent_marker_rotations[marker_id].append(rotation)
+
+
+def _register_building(payload: dict, peer) -> dict:
+    """Register the block on the table as `building_id`, or raise `ValueError` explaining why not.
+
+    Called when the operator has turned the block parallel to its own footprint, projected on the
+    table at the building's real heading. That confirmation is the whole measurement: at that
+    instant the block's heading *is* the catalog's true-north heading, so the reference is right
+    by construction and `rotation_offset_deg` is a measured zero rather than an unmeasured None
+    (see `building_registration`).
+
+    Writes the working catalog first and the live one from that same result, for the reason
+    `_record_building_calibration` does: the two are only reconciled by a manual publish, so
+    merging separately would draw one thing, persist another, and record a third.
+    """
+    global physical_building_catalog, physical_buildings_by_marker
+
+    building_id = str(payload.get("building_id", "")).strip().upper()
+    if not building_id:
+        raise ValueError("no building_id in the message")
+
+    with open(SOURCE_BUILDINGS_PATH, "r", encoding="utf-8") as source_file:
+        source = json.load(source_file)
+    matches = [
+        feature
+        for feature in source.get("features", [])
+        if str(feature.get("properties", {}).get("building_id", "")).strip().upper() == building_id
+    ]
+    if not matches:
+        raise ValueError(f"{building_id} is not in {os.path.basename(SOURCE_BUILDINGS_PATH)}")
+
+    working_path = Path(WORKING_BUILDING_CATALOG_PATH)
+    working_catalog = load_catalog(working_path)
+    seen = [marker_id for marker_id, readings in recent_marker_rotations.items() if readings]
+    marker_id = marker_to_register(working_catalog, building_id, seen, RESERVED_MARKER_IDS)
+    reference_rotation = reference_rotation_from_samples(recent_marker_rotations[marker_id])
+
+    entry = registered_entry(matches[0], marker_id, reference_rotation)
+    save_catalog(working_path, catalog_with_entry(working_catalog, entry))
+
+    # The live catalog takes that same result, so what the operator sees on the table and what is
+    # on disk are the same thing by construction rather than by two matching merges.
+    physical_building_catalog = catalog_with_entry(physical_building_catalog, entry)
+    physical_buildings_by_marker = marker_index(physical_building_catalog)
+    _warned_unknown_marker_ids.discard(marker_id)
+
+    calibration_logger.info(
+        "BUILDING REGISTERED from %s | building=%s | marker=%s | reference_rotation=%.4f "
+        "| samples=%s | working_catalog=%s",
+        peer,
+        building_id,
+        marker_id,
+        reference_rotation,
+        len(recent_marker_rotations[marker_id]),
+        working_path,
+    )
+    return {
+        "type": "register_building_result",
+        "ok": True,
+        "building_id": building_id,
+        "marker_id": marker_id,
+        "reference_rotation_deg": reference_rotation,
+        "sample_count": len(recent_marker_rotations[marker_id]),
+    }
 
 
 def _record_building_calibration(payload: dict, peer) -> None:
@@ -370,6 +480,13 @@ async def handle_web_client(websocket):
     Expected incoming message schema:
         {"type": "map_calibration", "points": [{"pixel_position": [x, y], "utm_position": [x, y]}, ...]}
         {"type": "clear_calibration"}  # drops the current homography; resumes raw marker output
+        {"type": "register_building", "building_id": "G11"}
+         # Sent when the operator has turned the block PARALLEL to its own footprint, which the
+         # frontend projects on the table at the building's real heading. Carries no marker id:
+         # a building being registered for the first time has no catalog entry, so there is none
+         # to send -- the server resolves it as the one marker on the table no building claims.
+         # Parallel, not on top of: the reference needs only the angle, so the block may sit
+         # anywhere, which is what lets an operator check both cameras across the table.
         {"type": "building_calibration", "building_id": "G07", "marker_id": 12,
          # `rotation_offset_deg` is nullable in BOTH directions: Python publishes `null` for a
          # building whose heading has never been verified, and accepts `null` to put one back to
@@ -420,6 +537,21 @@ async def handle_web_client(websocket):
                         f"Updated basemap homography from {len(calibration_points)} calibration points "
                         f"(1:{table_ground_scale:.1f} map, catalog geometry scaled by "
                         f"{global_model_scale_factor:.4f}, session {current_session_id})"
+                    )
+                    # The frontend needs this to draw a registration target at the size of the
+                    # physical block. It already receives `model_scale_factor` on every tracked
+                    # building, but a building being registered for the first time has no feature
+                    # yet -- which is precisely when the number is needed.
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "session_state",
+                                "session_id": current_session_id,
+                                "model_scale": MODEL_SCALE,
+                                "model_scale_factor": global_model_scale_factor,
+                                "ground_scale": table_ground_scale,
+                            }
+                        )
                     )
                     calibration_logger.info(
                         "CALIBRATION UPDATED from %s | session=%s | ground_scale=%.4f "
@@ -479,12 +611,42 @@ async def handle_web_client(websocket):
                         payload,
                     )
 
+            elif message_type == "register_building":
+                try:
+                    result = _register_building(payload, peer)
+                    print(
+                        f"Registered {result['building_id']} -> marker {result['marker_id']} at "
+                        f"reference rotation {result['reference_rotation_deg']:.3f} deg; run "
+                        "building_catalog/publish-to-runtime.ps1 to make it the next boot default"
+                    )
+                    await websocket.send(json.dumps(result))
+                except (KeyError, OSError, TypeError, ValueError) as exc:
+                    print(f"Rejected register_building: {exc}")
+                    calibration_logger.info(
+                        "BUILDING REGISTRATION REJECTED from %s | error=%s | raw_payload=%s",
+                        peer,
+                        exc,
+                        payload,
+                    )
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "register_building_result",
+                                "ok": False,
+                                "building_id": payload.get("building_id"),
+                                "error": str(exc),
+                            }
+                        )
+                    )
+
             else:
                 print(f"Unknown message type from web client: {message_type!r}")
 
     async def send_tracking_updates():
         async def send(snapshot: dict):
             global basemap_homography
+
+            _remember_marker_rotations(snapshot)
 
             # Once the web client has sent map calibration points, convert
             # marker positions to GeoJSON; until then, send a plain dict

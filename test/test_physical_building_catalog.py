@@ -6,14 +6,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import importlib.util
-
-_BUILD_TOOL = Path(__file__).resolve().parents[1] / "building_catalog" / "build.py"
-_spec = importlib.util.spec_from_file_location("building_catalog_build", _BUILD_TOOL)
-_build = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_build)
-confirm_replace = _build.confirm_replace
-ensure_markers_are_unique = _build.ensure_markers_are_unique
 from physical_building_catalog import (
     building_feature,
     catalog_entry,
@@ -71,24 +63,21 @@ def test_empty_catalog_file_starts_a_new_catalog(tmp_path):
     assert catalog["buildings"] == []
 
 
-def test_replace_defaults_to_no():
-    messages = []
-    assert not confirm_replace("G17", [24], [31], lambda _prompt: "", messages.append)
-    assert messages == [
-        "G17 already exists with marker IDs [24].",
-        "Detected marker IDs: [31].",
-    ]
-
-
 def test_marker_cannot_belong_to_two_buildings():
+    """One marker, one building. Two would draw two footprints on the same block.
+
+    Guarded at the point the catalog is indexed, so it holds for every reader rather than only
+    for whichever tool remembered to check. `building_registration.marker_to_register` is what
+    keeps a registration from creating this state in the first place.
+    """
     catalog = {
         "buildings": [
             {"building_id": "G17", "marker_ids": [24]},
-            {"building_id": "G18", "marker_ids": [31]},
+            {"building_id": "G18", "marker_ids": [24, 31]},
         ]
     }
     with pytest.raises(ValueError, match="G17"):
-        ensure_markers_are_unique(catalog, "G18", [24])
+        marker_index(catalog)
 
 
 @pytest.mark.parametrize(

@@ -17,7 +17,7 @@ import pytest
 import server
 from calibration_contract import MAP_CALIBRATION_MARKER_CORNERS
 from marker import Marker, Markers
-from physical_building_catalog import MODEL_SCALE
+from physical_building_catalog import MODEL_SCALE, empty_catalog, save_catalog
 from pixel_to_utm import direction_through_homography, ground_scale
 from session_store import SessionStore
 
@@ -53,6 +53,11 @@ class _Session:
 
     def __init__(self):
         self.received = []
+        #: Typed server->client messages seen while waiting for a tracking snapshot, in order.
+        #: The real client routes by shape (`collabTracking.ts::handleMessage`) rather than
+        #: assuming the next message is a snapshot, so this harness has to as well -- otherwise
+        #: adding any control message to the protocol breaks every test that pushes a snapshot.
+        self.control_messages = []
 
     async def __aenter__(self):
         server.basemap_homography = None
@@ -93,15 +98,53 @@ class _Session:
         server.global_model_scale_factor = None
 
     async def push(self, snapshot: dict) -> dict:
-        """Publish one snapshot and return the message the client actually received."""
+        """Publish one snapshot and return the tracking message the client actually received.
+
+        Typed control messages arriving first (`session_state`, `register_building_result`) are
+        set aside in `control_messages` rather than returned, mirroring the real client's
+        shape-based routing.
+        """
         server.tracking_queue.put_nowait(snapshot)
-        raw = await asyncio.wait_for(self._client.recv(), timeout=5)
-        self.received.append(raw)
-        return json.loads(raw)
+        while True:
+            raw = await asyncio.wait_for(self._client.recv(), timeout=5)
+            data = json.loads(raw)
+            if _is_control_message(data):
+                self.control_messages.append(data)
+                continue
+            self.received.append(raw)
+            return data
+
+    async def control(self, message_type: str | None = None) -> dict:
+        """The next typed control message, optionally of a given `type`, waiting if need be.
+
+        Filtering by type rather than taking whatever is next, because an accepted
+        `map_calibration` already queues a `session_state` -- a test asking for a registration
+        result would otherwise get the handshake's message and fail somewhere unrelated to what
+        it is checking.
+        """
+        while True:
+            for index, message in enumerate(self.control_messages):
+                if message_type is None or message.get("type") == message_type:
+                    return self.control_messages.pop(index)
+            raw = await asyncio.wait_for(self._client.recv(), timeout=5)
+            data = json.loads(raw)
+            if _is_control_message(data):
+                self.control_messages.append(data)
+            else:
+                self.received.append(raw)
 
     async def send(self, payload: dict) -> None:
         await self._client.send(json.dumps(payload))
         await asyncio.sleep(0.1)  # let receive_messages() apply it
+
+
+def _is_control_message(data) -> bool:
+    """A typed server->client message that is not a tracking snapshot."""
+    return (
+        isinstance(data, dict)
+        and isinstance(data.get("type"), str)
+        and data["type"] != "FeatureCollection"
+    )
 
 
 def _looks_like_raw_marker_dictionary(data) -> bool:
@@ -366,3 +409,181 @@ async def test_recalibrating_the_same_aoi_reuses_its_session(temporary_session_s
     assert second is not None
     assert temporary_session_store.session_count() == (1 if first == second else 2)
     assert temporary_session_store.session(second) is not None
+
+
+# --- registering a building from the frontend --------------------------------------------
+#
+# The flow this exercises: the frontend projects the building's own footprint onto the table at
+# its real heading, the operator turns the block PARALLEL to it (anywhere on the table -- only
+# the angle is being measured), and confirms. That confirmation is the one piece of information
+# no camera can supply, because the same marker glued straight, sideways or upside down reads
+# identically.
+
+
+@pytest.fixture
+def registration_rig(tmp_path, monkeypatch):
+    """An empty working catalog and an empty live catalog, both restored after the test.
+
+    The live catalog is a module global that `_register_building` reassigns, so without this a
+    registration would leak into every later test in the session.
+    """
+    working = tmp_path / "physical-building-catalog.json"
+    save_catalog(working, empty_catalog())
+    monkeypatch.setattr(server, "WORKING_BUILDING_CATALOG_PATH", str(working))
+    monkeypatch.setattr(server, "physical_building_catalog", empty_catalog())
+    monkeypatch.setattr(server, "physical_buildings_by_marker", {})
+    server.recent_marker_rotations.clear()
+    yield working
+    server.recent_marker_rotations.clear()
+
+
+def _table_with_block(marker_id: int, rotation: float) -> dict:
+    """One snapshot: the four calibration markers, plus one building block at `rotation`."""
+    holder = Markers()
+    holder.clear()
+    points = CONTRACT["frontend_to_backend"]["map_calibration"]["points"]
+    for calibration_id, point in zip(sorted(MAP_CALIBRATION_MARKER_CORNERS), points):
+        x, y = point["pixel_position"]
+        holder.addMarker(Marker(calibration_id, (x, y, 0.0), 12121, "000"))
+    # Seen twice so it clears the confidence gate.
+    holder.addMarker(Marker(marker_id, (700, 400, rotation), 12121, "000"))
+    holder.addMarker(Marker(marker_id, (700, 400, rotation), 12121, "000"))
+    return holder.toDict()
+
+
+async def _settle_block(session, marker_id: int, rotation: float, frames: int = 12) -> dict:
+    """Push enough identical snapshots that the block reads as still and in view."""
+    message = None
+    for _ in range(frames):
+        message = await session.push(_table_with_block(marker_id, rotation))
+    return message
+
+
+@pytest.mark.asyncio
+async def test_registering_a_building_records_the_block_s_heading_as_verified(registration_rig):
+    """The point of the flow: the operator aligned the block, so the alignment IS measured.
+
+    `rotation_offset_deg` comes out a measured `0.0` and `alignment_verified` true -- not because
+    the code assumed anything, but because the frontend showed the building's real heading and a
+    human put the block on it.
+    """
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        await _settle_block(session, 18, -116.25)
+        await session.send({"type": "register_building", "building_id": "G11"})
+        result = await session.control("register_building_result")
+        message = await session.push(_table_with_block(18, -116.25))
+
+    assert result["type"] == "register_building_result"
+    assert result["ok"] is True
+    assert result["building_id"] == "G11"
+    assert result["marker_id"] == 18
+    assert result["reference_rotation_deg"] == pytest.approx(-116.25, abs=0.01)
+
+    (feature,) = [f for f in message["features"] if f["properties"]["building_id"] == "G11"]
+    assert feature["properties"]["alignment_verified"] is True
+    assert feature["properties"]["calibration"]["rotation_offset_deg"] == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_a_just_registered_building_draws_at_the_catalog_heading(registration_rig):
+    """`detected == reference` right after registering, so the footprint sits at true north.
+
+    Which is now a *correct* claim rather than an accident: the reference was captured while the
+    block was aligned to the projected footprint.
+    """
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        await _settle_block(session, 18, -116.25)
+        await session.send({"type": "register_building", "building_id": "G11"})
+        await session.control("register_building_result")
+        message = await session.push(_table_with_block(18, -116.25))
+
+    (feature,) = [f for f in message["features"] if f["properties"]["building_id"] == "G11"]
+    assert feature["properties"]["rotation"] == pytest.approx(0.0, abs=0.05)
+
+
+@pytest.mark.asyncio
+async def test_turning_the_block_after_registering_turns_the_footprint_the_same_way(registration_rig):
+    """What the operator actually asked the system for: put it anywhere, it follows."""
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        await _settle_block(session, 18, -116.25)
+        await session.send({"type": "register_building", "building_id": "G11"})
+        await session.control("register_building_result")
+        message = await session.push(_table_with_block(18, -26.25))
+
+    (feature,) = [f for f in message["features"] if f["properties"]["building_id"] == "G11"]
+    assert feature["properties"]["rotation"] == pytest.approx(90.0, abs=1.5)
+
+
+@pytest.mark.asyncio
+async def test_registering_with_no_block_on_the_table_is_refused(registration_rig):
+    """Refusals come back typed, so the panel can say why instead of appearing to hang."""
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        await session.send({"type": "register_building", "building_id": "G11"})
+        result = await session.control("register_building_result")
+
+    assert result["ok"] is False
+    assert "unclaimed marker" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_registering_an_unknown_building_is_refused(registration_rig):
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        await _settle_block(session, 18, -116.25)
+        await session.send({"type": "register_building", "building_id": "NOPE"})
+        result = await session.control("register_building_result")
+
+    assert result["ok"] is False
+    assert "buildings_all.geojson" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_block_still_being_moved_is_refused(registration_rig):
+    """A heading averaged across a moving block would become a permanent constant error."""
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        for index in range(12):
+            await session.push(_table_with_block(18, -116.25 + index * 5.0))
+        await session.send({"type": "register_building", "building_id": "G11"})
+        result = await session.control("register_building_result")
+
+    assert result["ok"] is False
+    assert "moved" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_calibration_marker_is_never_registered_as_a_building(registration_rig):
+    """The Table window projects them, so they are in view during every single registration."""
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        for _ in range(12):
+            holder = Markers()
+            holder.clear()
+            points = CONTRACT["frontend_to_backend"]["map_calibration"]["points"]
+            for calibration_id, point in zip(sorted(MAP_CALIBRATION_MARKER_CORNERS), points):
+                x, y = point["pixel_position"]
+                holder.addMarker(Marker(calibration_id, (x, y, 0.0), 12121, "000"))
+            await session.push(holder.toDict())
+        await session.send({"type": "register_building", "building_id": "G11"})
+        result = await session.control("register_building_result")
+
+    assert result["ok"] is False
+    assert "unclaimed marker" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_the_frontend_is_told_the_scale_to_draw_the_target_at():
+    """A building being registered has no feature yet, which is exactly when the scale is needed."""
+    async with _Session() as session:
+        await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
+        state = await session.control("session_state")
+        derived = server.global_model_scale_factor
+
+    assert state["type"] == "session_state"
+    assert state["model_scale"] == MODEL_SCALE
+    assert state["model_scale_factor"] == pytest.approx(derived)
+    assert state["ground_scale"] > 0

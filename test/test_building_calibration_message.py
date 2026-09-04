@@ -116,11 +116,25 @@ class _Session:
         server.latest_table_pixel_positions.clear()
 
     async def push(self, snapshot: dict) -> dict:
+        """The next tracking snapshot, skipping typed control messages.
+
+        The real client routes by shape (`collabTracking.ts::handleMessage`) rather than assuming
+        the next message is a snapshot -- an accepted `map_calibration` now also emits
+        `session_state` -- so this harness has to as well.
+        """
         server.tracking_queue.put_nowait(snapshot)
         import asyncio
 
-        raw = await asyncio.wait_for(self._client.recv(), timeout=5)
-        return json.loads(raw)
+        while True:
+            raw = await asyncio.wait_for(self._client.recv(), timeout=5)
+            data = json.loads(raw)
+            is_control = (
+                isinstance(data, dict)
+                and isinstance(data.get("type"), str)
+                and data["type"] != "FeatureCollection"
+            )
+            if not is_control:
+                return data
 
     async def send(self, payload: dict) -> None:
         import asyncio
