@@ -4,13 +4,20 @@ TOSCA-2 projects ArUco markers into the AOI and reads them straight back out of 
 server's raw marker snapshot to build its `map_calibration` handshake. Two groups: the
 four corner ids (200-203), whose id -> corner assignment is a physical contract mirrored
 verbatim on the frontend in `src/collab/stores/collabTracking.ts::MAP_CALIBRATION_MARKERS`
-and in the vanilla reference app's `js/state.js::MARKER_ID_TO_KEY`; and the five extra grid
-ids (204-208), which this server admits but does not name. Nothing else in this repo may
-declare these ids.
+and in the vanilla reference app's `js/state.js::MARKER_ID_TO_KEY`; and the eight extra grid
+ids (206, 207, 209-214), which this server admits but does not name. Nothing else in this
+repo may declare these ids.
 
 The `4x4_1000-{id}.svg` filenames the frontend serves are not a dictionary mismatch:
-OpenCV's 4x4 dictionaries are nested, so ids 200-208 are bit-identical under the
+OpenCV's 4x4 dictionaries are nested, so these ids are bit-identical under the
 `DICT_4X4_250` that `detection.py` loads.
+
+Ids 204, 205 and 208 were retired 2026-09-07: they sat at the grid's exact horizontal centre,
+which on a table built from two desks pushed together is exactly where the camera-stitch seam
+runs, so a marker projected there straddled the seam and could never be decoded. Each was
+replaced by a left/right pair straddling the seam from a safe distance instead of sitting on
+it (frontend `MapCalibrationMarkerBand`'s `midLeft`/`midRight`) — see
+`TOSCA-2/public/collab/calibration-markers/README.md`.
 """
 
 from typing import Dict, Final, Sequence, Tuple
@@ -45,9 +52,9 @@ MAP_CALIBRATION_MARKER_CORNERS: Final[Dict[int, Corner]] = {
     203: "bottom_right",
 }
 
-#: The five extra map-calibration marker ids TOSCA-2 projects alongside the four corners: the
-#: edge midpoints and the centre of a 3x3 grid over the projectable area (workflow step 5,
-#: `collabTracking.ts::MAP_CALIBRATION_MARKERS`).
+#: The eight extra map-calibration marker ids TOSCA-2 projects alongside the four corners: the
+#: left/right edge midpoints plus three seam-clearance pairs over the projectable area (workflow
+#: step 5, `collabTracking.ts::MAP_CALIBRATION_MARKERS`).
 #:
 #: They exist because a four-point homography has no freedom left: `cv2.findHomography` passes
 #: through all four exactly and dumps every bit of detection noise into the map everywhere else.
@@ -55,11 +62,16 @@ MAP_CALIBRATION_MARKER_CORNERS: Final[Dict[int, Corner]] = {
 #: noise averages out and there is a residual to look at. Nothing in the homography code changes
 #: to accept them -- it has taken `>= 4` points from the start.
 #:
+#: The three pairs (209/210, 211/212, 213/214) replace what used to be three single markers sitting
+#: dead-centre (204, 205, 208) -- on a table assembled from two desks pushed together that centre
+#: line is exactly the camera-stitch seam, so those three ids were never decodable on that hardware
+#: (2026-09-07). Each pair straddles the seam from a safe distance instead.
+#:
 #: They are declared here for one reason: `marker.py::reduceToCalibrationMarkers` waves calibration
 #: markers past the confidence gate, and an id missing from this contract would be held back by it
 #: and never reach the frontend to be read. Their id -> place mapping is TOSCA-2's business, not
 #: this server's, so only the ids appear here.
-EXTRA_MAP_CALIBRATION_MARKER_IDS: Final[Tuple[int, ...]] = (204, 205, 206, 207, 208)
+EXTRA_MAP_CALIBRATION_MARKER_IDS: Final[Tuple[int, ...]] = (206, 207, 209, 210, 211, 212, 213, 214)
 
 #: Every map-calibration id -- the four corners plus the grid -- as a set, for membership tests on
 #: a detected-marker snapshot.

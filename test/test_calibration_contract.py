@@ -24,16 +24,17 @@ FIXTURE = json.loads(
 
 
 def test_calibration_marker_ids_are_the_corners_plus_the_grid():
-    """200-203 are the corners; 204-208 are TOSCA-2's extra grid points (workflow step 5).
+    """200-203 are the corners; 206/207/209-214 are TOSCA-2's extra grid points (workflow step 5).
 
-    All nine must be here, not just the corners: `marker.py::reduceToCalibrationMarkers` waves
+    All twelve must be here, not just the corners: `marker.py::reduceToCalibrationMarkers` waves
     exactly these ids past the confidence gate, so an id missing from this set is held back and
     never reaches the frontend to be read -- the marker would simply never appear, with nothing
-    anywhere saying why.
+    anywhere saying why. 204/205/208 were retired 2026-09-07 (they sat on the camera-stitch seam
+    of a two-desk table) and must never reappear here.
     """
-    assert sorted(MAP_CALIBRATION_MARKER_IDS) == [200, 201, 202, 203, 204, 205, 206, 207, 208]
+    assert sorted(MAP_CALIBRATION_MARKER_IDS) == [200, 201, 202, 203, 206, 207, 209, 210, 211, 212, 213, 214]
     assert sorted(MAP_CALIBRATION_MARKER_CORNERS) == [200, 201, 202, 203]
-    assert sorted(EXTRA_MAP_CALIBRATION_MARKER_IDS) == [204, 205, 206, 207, 208]
+    assert sorted(EXTRA_MAP_CALIBRATION_MARKER_IDS) == [206, 207, 209, 210, 211, 212, 213, 214]
 
 
 def test_only_the_corner_markers_claim_a_corner():
