@@ -24,17 +24,21 @@ FIXTURE = json.loads(
 
 
 def test_calibration_marker_ids_are_the_corners_plus_the_grid():
-    """200-203 are the corners; 206/207/209-214 are TOSCA-2's extra grid points (workflow step 5).
+    """200-203 are the corners; 206/207/209-213 are TOSCA-2's extra grid points (workflow step 5).
 
-    All twelve must be here, not just the corners: `marker.py::reduceToCalibrationMarkers` waves
+    All eleven must be here, not just the corners: `marker.py::reduceToCalibrationMarkers` waves
     exactly these ids past the confidence gate, so an id missing from this set is held back and
     never reaches the frontend to be read -- the marker would simply never appear, with nothing
     anywhere saying why. 204/205/208 were retired 2026-09-07 (they sat on the camera-stitch seam
-    of a two-desk table) and must never reappear here.
+    of a two-desk table) and must never reappear here. 214 (208's midRight seam-clearance half)
+    was retired hours after shipping: that row sits at the AOI's vertical centre too, which on the
+    live rig is where the ceiling beamer's projection is brightest, so a marker there is
+    overexposed and undecodable regardless of seam clearance. 213, its midLeft half, reads fine
+    and stays -- the centre row carries one marker, not a pair.
     """
-    assert sorted(MAP_CALIBRATION_MARKER_IDS) == [200, 201, 202, 203, 206, 207, 209, 210, 211, 212, 213, 214]
+    assert sorted(MAP_CALIBRATION_MARKER_IDS) == [200, 201, 202, 203, 206, 207, 209, 210, 211, 212, 213]
     assert sorted(MAP_CALIBRATION_MARKER_CORNERS) == [200, 201, 202, 203]
-    assert sorted(EXTRA_MAP_CALIBRATION_MARKER_IDS) == [206, 207, 209, 210, 211, 212, 213, 214]
+    assert sorted(EXTRA_MAP_CALIBRATION_MARKER_IDS) == [206, 207, 209, 210, 211, 212, 213]
 
 
 def test_only_the_corner_markers_claim_a_corner():
