@@ -4,8 +4,8 @@ TOSCA-2 projects ArUco markers into the AOI and reads them straight back out of 
 server's raw marker snapshot to build its `map_calibration` handshake. Two groups: the
 four corner ids (200-203), whose id -> corner assignment is a physical contract mirrored
 verbatim on the frontend in `src/collab/stores/collabTracking.ts::MAP_CALIBRATION_MARKERS`
-and in the vanilla reference app's `js/state.js::MARKER_ID_TO_KEY`; and the seven extra grid
-ids (206, 207, 209-213), which this server admits but does not name. Nothing else in this
+and in the vanilla reference app's `js/state.js::MARKER_ID_TO_KEY`; and the six extra grid
+ids (206, 207, 209-212), which this server admits but does not name. Nothing else in this
 repo may declare these ids.
 
 The `4x4_1000-{id}.svg` filenames the frontend serves are not a dictionary mismatch:
@@ -18,11 +18,18 @@ runs, so a marker projected there straddled the seam and could never be decoded.
 were replaced by a left/right pair straddling the seam from a safe distance instead of sitting
 on it (frontend `MapCalibrationMarkerBand`'s `midLeft`/`midRight`) — see
 `TOSCA-2/public/collab/calibration-markers/README.md`. 208's replacement pair (213/214) shipped
-the same day but 214 (the midRight half) was retired within hours: that row sits at the AOI's
-vertical centre too, which on the live rig is where the ceiling beamer's projection is
-brightest, and a marker there is overexposed and undecodable regardless of its distance from
-the seam. 213 (the midLeft half) reads fine -- the beamer's hotspot is not centred on the seam
-itself -- so it stays; the table's centre row carries one marker now, not a pair.
+the same day and both halves are gone again: 214 (the midRight half) was retired within hours
+because that row sits at the AOI's vertical centre too, which on the live rig is where the
+ceiling beamer's projection is brightest, and a marker there is overexposed and undecodable
+regardless of its distance from the seam. 213 read fine and was kept -- but keeping it alone
+left the centre row with two points on the left half (206, 213) and one on the right (207).
+
+That asymmetry was retired the same day, second rig session ("yamuk binalar"): buildings drawn
+uniformly crooked across the whole table. `create_basemap_homography` solves least squares over
+every correspondence TOSCA-2 sends, so an unbalanced point cloud does not let per-marker
+detection error cancel -- it biases the solve, and a biased homography fails as a shear. The id
+list below is therefore deliberately left-right symmetric about the seam, and must stay that
+way: a midLeft id added here without its midRight partner reintroduces that bug.
 """
 
 from typing import Dict, Final, Sequence, Tuple
@@ -57,8 +64,8 @@ MAP_CALIBRATION_MARKER_CORNERS: Final[Dict[int, Corner]] = {
     203: "bottom_right",
 }
 
-#: The seven extra map-calibration marker ids TOSCA-2 projects alongside the four corners: the
-#: left/right edge midpoints plus three seam-clearance markers over the projectable area (workflow
+#: The six extra map-calibration marker ids TOSCA-2 projects alongside the four corners: the
+#: left/right edge midpoints plus two seam-clearance pairs over the projectable area (workflow
 #: step 5, `collabTracking.ts::MAP_CALIBRATION_MARKERS`).
 #:
 #: They exist because a four-point homography has no freedom left: `cv2.findHomography` passes
@@ -72,17 +79,21 @@ MAP_CALIBRATION_MARKER_CORNERS: Final[Dict[int, Corner]] = {
 #: line is exactly the camera-stitch seam, so those three ids were never decodable on that hardware
 #: (2026-09-07). Each pair straddles the seam from a safe distance instead.
 #:
-#: 208's pair was 213/214, straddling the same seam on the vertical centre row -- but 214 (the
-#: midRight half) was retired hours after it shipped: that row is also exactly where the ceiling
-#: beamer's projection is brightest, and 214's side of it proved undecodable no matter the seam
-#: clearance. 213, the midLeft half, reads fine -- the beamer's hotspot is not centred on the seam
-#: itself -- so it is the one marker left on the centre row, not a pair.
+#: 208's pair was 213/214, straddling the same seam on the vertical centre row -- both are gone.
+#: 214 (the midRight half) was retired hours after it shipped: that row is also exactly where the
+#: ceiling beamer's projection is brightest, and 214's side of it proved undecodable no matter the
+#: seam clearance. 213 read fine, but a lone midLeft with no midRight partner made the point cloud
+#: asymmetric and sheared the homography (see this module's docstring), so it went too. The centre
+#: row is back to just its two edge midpoints, 206 and 207.
+#:
+#: This tuple must stay left-right symmetric about the seam. Adding a midLeft id without its
+#: midRight partner is the "yamuk binalar" bug.
 #:
 #: They are declared here for one reason: `marker.py::reduceToCalibrationMarkers` waves calibration
 #: markers past the confidence gate, and an id missing from this contract would be held back by it
 #: and never reach the frontend to be read. Their id -> place mapping is TOSCA-2's business, not
 #: this server's, so only the ids appear here.
-EXTRA_MAP_CALIBRATION_MARKER_IDS: Final[Tuple[int, ...]] = (206, 207, 209, 210, 211, 212, 213)
+EXTRA_MAP_CALIBRATION_MARKER_IDS: Final[Tuple[int, ...]] = (206, 207, 209, 210, 211, 212)
 
 #: Every map-calibration id -- the four corners plus the grid -- as a set, for membership tests on
 #: a detected-marker snapshot.

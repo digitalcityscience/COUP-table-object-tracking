@@ -36,9 +36,9 @@ def test_calibration_marker_ids_are_the_corners_plus_the_grid():
     overexposed and undecodable regardless of seam clearance. 213, its midLeft half, reads fine
     and stays -- the centre row carries one marker, not a pair.
     """
-    assert sorted(MAP_CALIBRATION_MARKER_IDS) == [200, 201, 202, 203, 206, 207, 209, 210, 211, 212, 213]
+    assert sorted(MAP_CALIBRATION_MARKER_IDS) == [200, 201, 202, 203, 206, 207, 209, 210, 211, 212]
     assert sorted(MAP_CALIBRATION_MARKER_CORNERS) == [200, 201, 202, 203]
-    assert sorted(EXTRA_MAP_CALIBRATION_MARKER_IDS) == [206, 207, 209, 210, 211, 212, 213]
+    assert sorted(EXTRA_MAP_CALIBRATION_MARKER_IDS) == [206, 207, 209, 210, 211, 212]
 
 
 def test_only_the_corner_markers_claim_a_corner():
