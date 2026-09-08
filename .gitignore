@@ -4,3 +4,6 @@ output/
 logs/
 calibration_sessions.sqlite3
 existing_calibration_analysis/
+# mock_server.py's sandboxed catalogs and calibration record: copies of the real ones, written to
+# freely by mock sessions precisely so the real files stay clean. Committing them would defeat that.
+mock_state/
