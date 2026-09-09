@@ -41,6 +41,8 @@ import builtins
 import os
 import queue as queue_module
 import shutil
+import signal
+import sys
 import threading
 from pathlib import Path
 
@@ -282,6 +284,38 @@ def _report(block, what_happened: str) -> None:
     )
 
 
+def _install_signal_handlers() -> None:
+    """Make Ctrl+C leave at once instead of hanging for seconds on the CLI thread.
+
+    Without this the shutdown is visibly slow, and the reason is not obvious. Ctrl+C raises
+    KeyboardInterrupt on the *main* thread, but the CLI thread is parked inside `input()`, which on
+    Windows is a blocking console read that the interrupt does not cancel. Interpreter finalisation
+    then sits waiting on it -- daemon flag notwithstanding -- so the process appears frozen and
+    exits only once that read finally gives up. Through `uv run` it looks worse still, because uv
+    waits for its child before returning the prompt.
+
+    Leaving immediately is safe here, which is why this is the fix rather than a workaround: the
+    mock holds no unflushed state. `SessionStore` opens a connection per call and commits inside
+    `with connection:`, `save_catalog` writes synchronously, and the only other buffered thing is
+    stdio, flushed just below. There is nothing an orderly teardown would get to do.
+    """
+
+    def stop_now(signum, frame):
+        builtins.print("\nstopping mock server...")
+        _stop_feed.set()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        # `os._exit`, not `sys.exit`: sys.exit raises SystemExit on this thread, which lands us
+        # back in the same finalisation that is doing the waiting.
+        os._exit(0)
+
+    signal.signal(signal.SIGINT, stop_now)
+    signal.signal(signal.SIGTERM, stop_now)
+    if hasattr(signal, "SIGBREAK"):
+        # Windows' Ctrl+Break, which people reach for precisely when Ctrl+C seems stuck.
+        signal.signal(signal.SIGBREAK, stop_now)
+
+
 # -- entry point -----------------------------------------------------------------------------
 
 
@@ -330,6 +364,8 @@ def main(argv=None) -> None:
     # `server.main` does this for the real launch; the mock never calls it, and the catalog helpers
     # still resolve some paths relatively.
     os.chdir(server._SCRIPT_DIR)
+
+    _install_signal_handlers()
 
     if args.no_sandbox:
         builtins.print("!! --no-sandbox: registrations will overwrite the REAL catalogs")

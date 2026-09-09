@@ -4,11 +4,33 @@ Develop the frontend against the tracking backend on your laptop, with no camera
 and no tangible table.
 
 ```powershell
-.\run-mock-server.ps1          # or: python mock_server.py
+.\run-mock-server.ps1          # Windows
 ```
+```bash
+./run-mock-server.sh           # macOS / Linux
+```
+
+Both wrap `uv run` exactly as `run-server.ps1` does, so they need no virtualenv of your own. If you
+already have the dependencies installed, `python mock_server.py` is the same thing without the
+wrapper — the launchers only translate flags.
+
+| flag | |
+|---|---|
+| `-Motion` / `--motion` `still\|jitter\|drift` | how much the table moves on its own |
+| `-Port` / `--port` | websocket port (default 8053, the rig's own) |
+| `-Reset` / `--reset` | start from a fresh copy of the real catalogs |
+| `-NoSandbox` / `--no-sandbox` | write registrations to the REAL catalogs |
+| `-ShowFeed` / `--verbose` | echo every snapshot the server sends |
+| `-NoCli` / `--no-cli` | headless, for scripts and CI |
 
 It listens on `ws://0.0.0.0:8053` — the same host and port `server.py` uses — and speaks the same
 protocol. TOSCA-2 needs no changes and no flags to talk to it.
+
+Stop it with `quit` at the prompt, or Ctrl+C. Both leave immediately: Ctrl+C is handled explicitly
+(`_install_signal_handlers`) rather than left to unwind as a `KeyboardInterrupt`, because the CLI
+thread sits inside a blocking console read that the interrupt does not cancel, and interpreter
+finalisation then waits on it. Leaving abruptly is safe — the session store commits per write and
+the catalogs are written synchronously, so nothing is buffered.
 
 ---
 
@@ -203,6 +225,7 @@ receive GeoJSON from the previous client's session. Real behaviour, and easy to 
 | `mock_table.py` | the simulated table — the *only* fiction in the stack |
 | `test/test_mock_table.py` | the invariants that make the mock worth trusting |
 | `run-mock-server.ps1` | launcher, alongside `run-server.ps1` |
+| `run-mock-server.sh` | the same launcher for macOS and Linux |
 
 `mock_camera.py` is a different, older thing: it replays MP4 files through the *real* detection
 pipeline. Use it to test detection itself; use this to test everything downstream of it.

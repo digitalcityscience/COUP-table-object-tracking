@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings even when checked out on Windows (core.autocrlf=true is the
+# default here). A .sh with CRLF fails on macOS and Linux with a misleading
+# "bad interpreter: /usr/bin/env bash^M" -- and run-mock-server.sh exists precisely for those two.
+*.sh text eol=lf

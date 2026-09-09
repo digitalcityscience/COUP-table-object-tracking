@@ -38,7 +38,11 @@ param(
     [switch]$NoSandbox,
 
     # Echo every snapshot the server sends. Very noisy -- five GeoJSON dumps a second.
-    [switch]$Verbose_Feed
+    # Not called -Verbose: CmdletBinding already reserves that name for PowerShell's own switch.
+    [switch]$ShowFeed,
+
+    # Run headless, without the interactive prompt. For scripts and CI.
+    [switch]$NoCli
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,7 +57,8 @@ try {
     $ServerArgs = @("mock_server.py", "--motion", $Motion, "--port", $Port)
     if ($Reset) { $ServerArgs += "--reset" }
     if ($NoSandbox) { $ServerArgs += "--no-sandbox" }
-    if ($Verbose_Feed) { $ServerArgs += "--verbose" }
+    if ($ShowFeed) { $ServerArgs += "--verbose" }
+    if ($NoCli) { $ServerArgs += "--no-cli" }
     uv run --python 3.13 --with-requirements requirements.txt -- python @ServerArgs
 }
 finally {
