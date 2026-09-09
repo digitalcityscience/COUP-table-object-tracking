@@ -17,7 +17,7 @@
         12
       ],
       "marker_reference_rotations": {
-        "12": -110.50458218808376
+        "12": -135.778797315146
       },
       "local_bbox": [
         -20.944513765771404,
@@ -342,7 +342,17 @@
         "land_use_suggested": "- to be defined -",
         "number_of_stories": 16,
         "city_scope_id": "B-07"
-      }
+      },
+      "calibration": {
+        "rotation_offset_deg": 0.0,
+        "offset_east_m": 0.0,
+        "offset_north_m": 0.0,
+        "scale_residual": 1.0
+      },
+      "marker_center_offset_px": [
+        18.12932967250339,
+        -18.589460115842883
+      ]
     },
     {
       "building_id": "G11",
@@ -351,7 +361,7 @@
         18
       ],
       "marker_reference_rotations": {
-        "18": 134.47855548902598
+        "18": 133.03350121251376
       },
       "local_bbox": [
         -13.264419153931827,
@@ -406,7 +416,11 @@
         "offset_east_m": 0.0,
         "offset_north_m": 0.0,
         "scale_residual": 1.0
-      }
+      },
+      "marker_center_offset_px": [
+        21.101908928394323,
+        -17.8636200951926
+      ]
     },
     {
       "building_id": "G17",
@@ -415,7 +429,7 @@
         24
       ],
       "marker_reference_rotations": {
-        "24": 67.32374144575334
+        "24": -133.2896857014003
       },
       "local_bbox": [
         -22.341575492358384,
@@ -464,7 +478,17 @@
         "land_use_suggested": "- to be defined -",
         "number_of_stories": 12,
         "city_scope_id": "B-17"
-      }
+      },
+      "calibration": {
+        "rotation_offset_deg": 0.0,
+        "offset_east_m": 0.0,
+        "offset_north_m": 0.0,
+        "scale_residual": 1.0
+      },
+      "marker_center_offset_px": [
+        21.118395785449138,
+        -19.83666888281357
+      ]
     }
   ]
 }

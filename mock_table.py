@@ -148,7 +148,7 @@ class MockBuilding:
     `reference_heading` is the block's catalog `marker_reference_rotations` value -- the heading at
     which this building draws at its true real-world orientation. Kept on the block so the CLI can
     say "turn G11 by 30 degrees *from aligned*", which is the question an operator actually has,
-    rather than making them do the subtraction against a number like -110.5.
+    rather than making them do the subtraction against a number like -135.8.
     """
 
     building_id: str
@@ -387,7 +387,7 @@ class MockTable:
 
         `degrees` is relative, because that is the question an operator has -- "what does 30 degrees
         of error look like?" -- and because absolute headings here are raw table-frame angles like
-        -110.5, which nobody can hold in their head.
+        -135.8, which nobody can hold in their head.
         """
         with self._lock:
             block = self._find(key) if key is not None else self._pick(on_table=True)

@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from physical_building_catalog import (
+    alignment_is_verified,
     building_feature,
     catalog_entry,
     geometry_bbox,
@@ -116,9 +117,11 @@ def test_g17_marker_24_end_to_end():
         "center": [9.99, 53.55],
         "rotation": pytest.approx(32),
         "model_scale_factor": 1.0,
-        # G17 was registered at whatever heading its block was lying at and nobody has since
-        # checked that against the real building, so the runtime feature says so.
-        "alignment_verified": False,
+        # Read off the entry rather than written in as a constant: what this end-to-end test is
+        # for is that the feature carries what the catalog says, and pinning the literal instead
+        # made a passing suite depend on G17 never being registered -- the one thing the
+        # registration flow exists to do. Same correction 7e9b151 made to this test's siblings.
+        "alignment_verified": alignment_is_verified(entry),
         "bbox": result["properties"]["bbox"],
     }
     assert result["geometry"]["type"] == "Polygon"

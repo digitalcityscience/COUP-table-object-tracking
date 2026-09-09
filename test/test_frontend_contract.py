@@ -300,18 +300,24 @@ async def test_clearing_the_calibration_drops_the_model_scale_factor_with_it():
 async def test_every_building_says_whether_its_heading_was_ever_verified():
     """D1 on the wire: the frontend cannot mark what the server never tells it.
 
-    None of the three registered buildings has had its absolute heading checked, so the honest
-    answer today is `false` for every one of them -- and the point of the property is that the
-    projection can say so instead of drawing a guess exactly like a measurement.
+    The invariant, not the rig's mood: whatever the catalog holds for a building, the published
+    feature says the same thing, and its two channels -- the flag and the calibration block the
+    panel reads back -- never disagree. Pinning `false` for all three instead made a passing suite
+    depend on nobody ever registering a building, which is the one thing the flow exists to do.
     """
+    from physical_building_catalog import alignment_is_verified, marker_index
+
     async with _Session() as session:
         await session.send(CONTRACT["frontend_to_backend"]["map_calibration"])
         message = await session.push(_rig_snapshot())
+        by_marker = marker_index(server.physical_building_catalog)
 
     assert message["features"], "no building features to check"
     for feature in message["features"]:
-        assert feature["properties"]["alignment_verified"] is False
-        assert feature["properties"]["calibration"]["rotation_offset_deg"] is None
+        building = by_marker[feature["properties"]["marker_id"]]
+        verified = alignment_is_verified(building)
+        assert feature["properties"]["alignment_verified"] is verified
+        assert (feature["properties"]["calibration"]["rotation_offset_deg"] is None) is not verified
 
 
 @pytest.mark.asyncio
@@ -331,7 +337,16 @@ async def test_the_published_heading_is_the_one_the_homography_gives():
         building = marker_index(server.physical_building_catalog)[12]
 
     (feature,) = [f for f in message["features"] if f["properties"]["marker_id"] == 12]
-    table_pixel = (feature["properties"]["table_x_px"], feature["properties"]["table_y_px"])
+    # The published `table_x_px`/`table_y_px` are the *raw* detection, because the panel's table
+    # diagram wants where the marker was actually seen. The conversion happens at the marker
+    # *centre*, so the offset has to be added back here -- the map is 0.42 degrees out of square,
+    # so twenty pixels of difference is a fifth of a degree in the answer, and recomputing at the
+    # raw pixel silently failed the moment a building was registered with a centre offset.
+    offset = building.get("marker_center_offset_px", [0.0, 0.0])
+    table_pixel = (
+        feature["properties"]["table_x_px"] + float(offset[0]),
+        feature["properties"]["table_y_px"] + float(offset[1]),
+    )
     reference = float(building["marker_reference_rotations"]["12"])
     expected = (
         direction_through_homography(homography, table_pixel, 12.5)

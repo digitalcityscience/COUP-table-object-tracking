@@ -15,7 +15,6 @@ import pytest
 import server
 from marker import Marker, Markers
 from physical_building_catalog import (
-    alignment_is_verified,
     building_calibration_of,
     load_catalog,
     save_catalog,
@@ -294,9 +293,11 @@ async def test_a_calibration_sent_before_the_handshake_is_refused(rig):
     async with _Session() as session:
         await session.send(_calibration_message())
 
-    catalog = load_catalog(rig.working_catalog_path)
-    (building,) = [b for b in catalog["buildings"] if b["building_id"] == _BUILDING_ID]
-    assert alignment_is_verified(building) is False
+    # "The file is exactly what it was seeded with", not "nothing in it is verified" -- see the
+    # note in `test_a_calibration_whose_building_id_contradicts_its_marker_is_refused`.
+    assert load_catalog(rig.working_catalog_path) == load_catalog(
+        Path(server.PHYSICAL_BUILDING_CATALOG_PATH)
+    )
 
 
 @pytest.mark.asyncio
@@ -333,9 +334,11 @@ async def test_a_calibration_with_an_unknown_field_is_refused_whole(rig):
         await _calibrated_session(session)
         await session.send(_calibration_message(offset_up_mm=1.0))
 
-    catalog = load_catalog(rig.working_catalog_path)
-    (building,) = [b for b in catalog["buildings"] if b["building_id"] == _BUILDING_ID]
-    assert alignment_is_verified(building) is False
+    # Whole-refusal is "not one field of it landed", which only the seeded-file comparison
+    # actually says -- see the note in the building-id-contradiction test above.
+    assert load_catalog(rig.working_catalog_path) == load_catalog(
+        Path(server.PHYSICAL_BUILDING_CATALOG_PATH)
+    )
 
 
 @pytest.mark.asyncio
