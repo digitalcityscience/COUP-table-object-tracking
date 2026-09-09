@@ -87,33 +87,52 @@ deliberately:
 
 ## The CLI
 
-While the server runs, a prompt lets you be the operator's hands. `?` prints this list.
+While the server runs, a prompt lets you stand in for the hands that would be moving blocks on the
+real table. **Four verbs. Typed on their own, each one picks a block at random** — that is the
+normal way to use it, because the usual request at the table is not "nudge G11 five centimetres
+west", it is "make something change so I can watch the frontend react".
 
 ```
-  <enter> / l         show the table
-  sel <block>         choose the block the one-key commands act on
-  4 6 8 2             nudge the chosen block west / east / north / south
-  + -                 turn the chosen block by +/- 15 degrees
-  0                   put the chosen block back at its catalog heading
+  move        move a random block somewhere new
+  turn        turn a random block by a random angle
+  add         put a block back on the table
+  remove      take a random block off the table
+```
 
-  m <block> <du> <dv> move a block by a fraction of the table (e.g. m g11 0.1 -0.05)
-  p <block> <u> <v>   place a block at an absolute table fraction (0..1)
-  r <block> <deg>     turn a block by <deg>
-  a <block>           align a block to its catalog reference heading
-  off <block>         take a block off the table (it stops being detected)
-  on <block>          put it back
+Say which block, and how much, when you need to be exact — same four verbs:
 
-  s                   scatter every block to a random place and heading
-  x                   reset the table to its starting layout
-  still jitter drift  motion mode
-  u <id> [u v]        add an UNCLAIMED marker (what registration is about)
-  nu <id>             remove an unclaimed marker
-  c                   toggle the projected map-calibration markers on/off
-  v                   toggle the server's per-snapshot GeoJSON dump
-  q                   quit
+```
+  move g11            move G11 somewhere random
+  move g11 0.6 0.4    put G11 exactly there  (u, v run 0..1 across the table)
+  move all            move every block at once
+  turn g11 90         turn G11 by 90 degrees
+  add 42              put marker 42 on the table, claimed by no building
+  remove g11          take G11 off
+```
+
+The rest:
+
+```
+  list                show the table   (a blank line does the same)
+  align g11           put G11 back at its catalog heading
+  reset               back to the starting layout
+  motion still|jitter|drift
+  calib               hide or show the projected map-calibration markers
+  verbose             show or hide the server's per-snapshot dump
+  help / quit
 ```
 
 A block is named by building id (`g11`) or marker id (`18`).
+
+Two behaviours worth knowing:
+
+- **`add` always does something.** With every block already on the table there is nothing to
+  restore, so it invents an unclaimed marker instead and says so. "Nothing to add" would be
+  indistinguishable, at the prompt, from the command silently failing — and an unclaimed marker is
+  a useful thing to be handed anyway (see registration, below).
+- **`remove` on a catalogued block only takes it off the table**, leaving the catalog alone —
+  which is what happens physically. An unclaimed marker is deleted outright, since nothing but the
+  mock knows it ever existed.
 
 ### Motion modes
 
@@ -130,17 +149,17 @@ rigid body would be indistinguishable from a homography change, and so would tes
 
 ## Things worth reproducing with it
 
-- **Calibration.** `c` hides the projected markers: the frontend should report an incomplete
+- **Calibration.** `calib` hides the projected markers: the frontend should report an incomplete
   calibration, not calibrate from a stale reading.
-- **A block leaving the table.** `off g11` — the building must disappear from the feed, and
+- **A block leaving the table.** `remove g11` — the building must disappear from the feed, and
   `building_calibration` against it must be refused once the reading goes stale
   (`TABLE_POSITION_MAX_AGE_SECONDS`, 3 s).
-- **Registration.** `u 42` puts an unclaimed marker on the table — the block registration is
-  actually about, and the one id the building feed never carries. `p 42 <u> <v>` walks it onto the
-  projected outline, and `scan_progress` should unlock Register only once it is there.
-- **Re-registration.** `u 18` re-offers an already-claimed marker, the re-glued-block flow.
-- **Rotation.** `sel g11`, then `+` repeatedly. Because the block starts aligned, the map heading
-  and the number the CLI prints must track each other exactly.
+- **Registration.** `add` on a full table hands you an unclaimed marker — the block registration is
+  actually about, and the one id the building feed never carries. `move 30 <u> <v>` walks it onto
+  the projected outline, and `scan_progress` should unlock Register only once it is there.
+- **Re-registration.** `add 18` re-offers an already-claimed marker, the re-glued-block flow.
+- **Rotation.** `turn g11 30`, repeatedly. Because the block starts aligned, the map heading and
+  the number the CLI prints must track each other exactly.
 
 ---
 

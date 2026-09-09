@@ -40,7 +40,7 @@ import math
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 from calibration_contract import MAP_CALIBRATION_MARKER_CORNERS
 
@@ -283,7 +283,7 @@ class MockTable:
                         CAMERA_ID,
                     ]
 
-            for block in list(self.buildings.values()) + list(self.unclaimed.values()):
+            for block in self._everything():
                 if not block.on_table:
                     continue
                 u, v, heading = self._pose_at(block, now)
@@ -320,65 +320,136 @@ class MockTable:
             return heading
         return heading + self._random.gauss(0.0, self.angle_noise)
 
-    # -- mutators (the CLI's whole vocabulary) ----------------------------------------------
+    # -- mutators -----------------------------------------------------------------------------
+    #
+    # Every one of these is reachable from the CLI's four verbs -- move, turn, add, remove -- and
+    # each verb does the *random* thing when it is given nothing to work with. That is the whole
+    # interface design: the common case at the table is "make something change so I can watch the
+    # frontend react", and having to name a block and invent coordinates for that is friction with
+    # no payoff. Naming a block, or a block and exact numbers, narrows the same verb down.
 
-    def block(self, key: str) -> MockBuilding:
-        """The block named by a building id (`g11`) or a marker id (`18`), or raise."""
+    def _find(self, key: str) -> MockBuilding:
+        """The block named by a building id (`g11`) or a marker id (`18`). Caller holds the lock."""
         lookup = key.strip().upper()
-        with self._lock:
-            everything = {**self.buildings, **self.unclaimed}
-            if lookup.isdigit() and int(lookup) in everything:
-                return everything[int(lookup)]
-            for candidate in everything.values():
-                if candidate.building_id.upper() == lookup:
-                    return candidate
+        everything = {**self.buildings, **self.unclaimed}
+        if lookup.isdigit() and int(lookup) in everything:
+            return everything[int(lookup)]
+        for candidate in everything.values():
+            if candidate.building_id.upper() == lookup:
+                return candidate
         known = ", ".join(sorted(b.building_id for b in self.buildings.values()))
         raise KeyError(f"no block called {key!r}; known blocks: {known}")
 
-    def move(self, key: str, du: float, dv: float) -> MockBuilding:
-        block = self.block(key)
+    def block(self, key: str) -> MockBuilding:
+        """The block named by a building id (`g11`) or a marker id (`18`), or raise."""
         with self._lock:
-            block.place(block.u + du, block.v + dv)
-        return block
+            return self._find(key)
 
-    def place(self, key: str, u: float, v: float) -> MockBuilding:
-        block = self.block(key)
-        with self._lock:
-            block.place(u, v)
-        return block
+    def _random_position(self) -> Tuple[float, float]:
+        """Somewhere inside the calibration quad, with a margin so blocks stay comfortably in view."""
+        return (
+            self._random.uniform(INSET_U + 0.05, 1.0 - INSET_U - 0.05),
+            self._random.uniform(INSET_V + 0.05, 1.0 - INSET_V - 0.05),
+        )
 
-    def turn(self, key: str, degrees: float) -> MockBuilding:
-        block = self.block(key)
-        with self._lock:
-            block.heading = (block.heading + degrees + 180.0) % 360.0 - 180.0
-        return block
+    def move(self, key: str | None = None, u: float | None = None, v: float | None = None):
+        """Move blocks. What it does depends on how much you tell it.
 
-    def align(self, key: str) -> MockBuilding:
-        block = self.block(key)
-        with self._lock:
-            block.align()
-        return block
+        * nothing            -- one random block on the table goes somewhere new, at a new heading
+        * `"all"`            -- every block does
+        * a block            -- that block does
+        * a block and `u, v` -- that block goes exactly there
 
-    def set_on_table(self, key: str, on_table: bool) -> MockBuilding:
-        block = self.block(key)
-        with self._lock:
-            block.on_table = on_table
-        return block
-
-    def scatter(self) -> None:
-        """Throw every block somewhere new inside the calibration quad, at a random heading.
-
-        The single most useful button on the mock: it changes every observable at once, so a
-        frontend that has cached a position, a heading or a feature id anywhere it should not have
-        shows it immediately.
+        Returns the list of blocks that moved, so the caller can report what happened without
+        re-reading the table.
         """
         with self._lock:
-            for block in self.buildings.values():
-                block.place(
-                    self._random.uniform(INSET_U + 0.05, 1.0 - INSET_U - 0.05),
-                    self._random.uniform(INSET_V + 0.05, 1.0 - INSET_V - 0.05),
-                )
-                block.heading = self._random.uniform(-180.0, 180.0)
+            if key is not None and key.strip().lower() == "all":
+                targets = [b for b in self._everything() if b.on_table] or self._everything()
+            elif key is None:
+                chosen = self._pick(on_table=True)
+                if chosen is None:
+                    return []
+                targets = [chosen]
+            else:
+                targets = [self._find(key)]
+
+            for block in targets:
+                if u is not None and v is not None:
+                    block.place(u, v)
+                else:
+                    block.place(*self._random_position())
+                    block.heading = self._random.uniform(-180.0, 180.0)
+            return targets
+
+    def turn(self, key: str | None = None, degrees: float | None = None) -> MockBuilding | None:
+        """Turn a block: a random one by a random angle, unless told otherwise.
+
+        `degrees` is relative, because that is the question an operator has -- "what does 30 degrees
+        of error look like?" -- and because absolute headings here are raw table-frame angles like
+        -110.5, which nobody can hold in their head.
+        """
+        with self._lock:
+            block = self._find(key) if key is not None else self._pick(on_table=True)
+            if block is None:
+                return None
+            turn_by = degrees if degrees is not None else self._random.uniform(-180.0, 180.0)
+            block.heading = (block.heading + turn_by + 180.0) % 360.0 - 180.0
+            return block
+
+    def align(self, key: str) -> MockBuilding:
+        """Put a block back at the heading its catalog reference was measured at."""
+        with self._lock:
+            block = self._find(key)
+            block.align()
+            return block
+
+    def add(self, key: str | None = None) -> Tuple[MockBuilding, str]:
+        """Put a block on the table, and say what kind of block it turned out to be.
+
+        * nothing              -- a block that is currently off the table comes back; if none is
+                                  off, an unclaimed marker with a fresh id appears instead
+        * a known block        -- that one comes back
+        * an unused marker id  -- an unclaimed marker with that id appears
+
+        The fallback is not a cute trick: `add` must always visibly do *something*, or the operator
+        cannot tell "nothing to add" from "the command did not work". The returned reason says
+        which of the two happened.
+        """
+        with self._lock:
+            if key is None:
+                waiting = self._pick(on_table=False)
+                if waiting is not None:
+                    waiting.on_table = True
+                    return waiting, "back on the table"
+                return self._new_unclaimed(self._free_marker_id()), "new unclaimed marker"
+
+            lookup = key.strip()
+            try:
+                block = self._find(lookup)
+            except KeyError:
+                if not lookup.isdigit():
+                    raise
+                return self._new_unclaimed(int(lookup)), "new unclaimed marker"
+            block.on_table = True
+            return block, "back on the table"
+
+    def remove(self, key: str | None = None) -> MockBuilding | None:
+        """Take a block off the table: a random one unless named. Returns it, or None if empty.
+
+        A catalogued block is only taken *off the table* -- it stays in the catalog, because that is
+        what happens physically and what the frontend has to cope with. An unclaimed marker is
+        deleted outright, since nothing but this mock knows it ever existed.
+        """
+        with self._lock:
+            block = self._find(key) if key is not None else self._pick(on_table=True)
+            if block is None:
+                return None
+            if block.marker_id in self.unclaimed:
+                del self.unclaimed[block.marker_id]
+            else:
+                block.on_table = False
+            return block
 
     def reset(self) -> None:
         with self._lock:
@@ -391,29 +462,47 @@ class MockTable:
             self.unclaimed.clear()
             self.calibration_markers_visible = True
 
-    def add_unclaimed(self, marker_id: int, u: float = 0.5, v: float = 0.5) -> MockBuilding:
-        """Put a block on the table that no catalog entry claims -- registration's subject.
+    # -- helpers behind the four verbs. All assume the lock is held. --------------------------
+
+    def _everything(self) -> List[MockBuilding]:
+        return list(self.buildings.values()) + list(self.unclaimed.values())
+
+    def _pick(self, *, on_table: bool) -> MockBuilding | None:
+        candidates = [b for b in self._everything() if b.on_table == on_table]
+        return self._random.choice(candidates) if candidates else None
+
+    def _free_marker_id(self) -> int:
+        """A marker id no building claims and no contract reserves.
+
+        Kept well clear of the 200s (map calibration) and 500 (`marker.IGNORED_MARKER_ID`), because
+        an id from either range would be filtered out somewhere downstream and the block would
+        simply never appear -- which looks exactly like a bug in the frontend.
+        """
+        taken = set(self.buildings) | set(self.unclaimed)
+        for marker_id in range(30, 100):
+            if marker_id not in taken:
+                return marker_id
+        raise RuntimeError("no free marker id left between 30 and 99")
+
+    def _new_unclaimed(self, marker_id: int) -> MockBuilding:
+        """A block on the table that no catalog entry claims -- registration's subject.
 
         Deliberately allowed to name an id the catalog *does* know: re-registering a building whose
         marker was re-glued is a real flow, and refusing it here would make the mock unable to
         reproduce the bug that flow exists to fix.
         """
-        with self._lock:
-            block = MockBuilding(
-                building_id=f"<unclaimed {marker_id}>",
-                marker_id=marker_id,
-                u=u,
-                v=v,
-                reference_heading=0.0,
-                heading=0.0,
-            )
-            block.place(u, v)
-            self.unclaimed[marker_id] = block
-            return block
-
-    def remove_unclaimed(self, marker_id: int) -> None:
-        with self._lock:
-            self.unclaimed.pop(marker_id, None)
+        u, v = self._random_position()
+        block = MockBuilding(
+            building_id=f"<unclaimed {marker_id}>",
+            marker_id=marker_id,
+            u=u,
+            v=v,
+            reference_heading=0.0,
+            heading=self._random.uniform(-180.0, 180.0),
+        )
+        block.place(u, v)
+        self.unclaimed[marker_id] = block
+        return block
 
     def set_motion(self, motion: str) -> None:
         if motion not in ("still", "jitter", "drift"):
@@ -441,10 +530,7 @@ class MockTable:
                 f"{'block':<18}{'marker':>7}{'u':>8}{'v':>8}{'px':>16}"
                 f"{'heading':>10}{'vs ref':>9}   state",
             ]
-            for block in sorted(
-                list(self.buildings.values()) + list(self.unclaimed.values()),
-                key=lambda b: b.marker_id,
-            ):
+            for block in sorted(self._everything(), key=lambda b: b.marker_id):
                 u, v, heading = self._pose_at(block, now)
                 x, y = uv_to_pixel(u, v)
                 offset = (heading - block.reference_heading + 180.0) % 360.0 - 180.0

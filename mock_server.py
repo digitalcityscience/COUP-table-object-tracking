@@ -45,7 +45,7 @@ import threading
 from pathlib import Path
 
 import server
-from mock_table import DEFAULT_LAYOUT, MockTable
+from mock_table import MockTable
 from physical_building_catalog import load_catalog, marker_index
 from session_store import SessionStore
 
@@ -151,45 +151,49 @@ def _install_quiet_console(verbose: bool) -> None:
 
 
 HELP = """
-commands (a block is a building id like g11, or a marker id like 18)
+four verbs. type one on its own and it picks a block at random -- that is the normal way to use it.
 
-  <enter> / l         show the table
-  sel <block>         choose the block the one-key commands act on
-  4 6 8 2             nudge the chosen block west / east / north / south
-  + -                 turn the chosen block by +/- 15 degrees
-  0                   put the chosen block back at its catalog heading
+  move                move a random block somewhere new
+  turn                turn a random block by a random angle
+  add                 put a block back on the table
+  remove              take a random block off the table
 
-  m <block> <du> <dv> move a block by a fraction of the table (e.g. m g11 0.1 -0.05)
-  p <block> <u> <v>   place a block at an absolute table fraction (0..1)
-  r <block> <deg>     turn a block by <deg>
-  a <block>           align a block to its catalog reference heading
-  off <block>         take a block off the table (it stops being detected)
-  on <block>          put it back
+say which block, and how much, when you need to be exact:
 
-  s                   scatter every block to a random place and heading
-  x                   reset the table to its starting layout
-  still jitter drift  motion mode: frozen / detection noise / blocks wander and spin
-  u <id> [u v]        add an UNCLAIMED marker (what registration is about)
-  nu <id>             remove an unclaimed marker
-  c                   toggle the projected map-calibration markers on/off
-  v                   toggle the server's per-snapshot GeoJSON dump
-  ?                   this help
-  q                   quit
+  move g11            move G11 somewhere random
+  move g11 0.6 0.4    put G11 exactly there  (u, v run 0..1 across the table)
+  move all            move every block at once
+  turn g11 90         turn G11 by 90 degrees
+  add 42              put marker 42 on the table, claimed by no building
+  remove g11          take G11 off
+
+the rest:
+
+  list                show the table   (a blank line does the same)
+  align g11           put G11 back at its catalog heading
+  reset               back to the starting layout
+  motion still|jitter|drift    frozen / detection noise / blocks wander on their own
+  calib               hide or show the projected map-calibration markers
+  verbose             show or hide the server's per-snapshot dump
+  help                this text
+  quit
 """
 
 
 def _run_cli(table: MockTable, loop: asyncio.AbstractEventLoop) -> None:
-    """The operator's hands. Runs on its own thread; every mutator it calls takes the table lock."""
-    chosen = DEFAULT_LAYOUT[1][0]  # G11: the one building with a calibration block in the catalog
-    nudge = 0.05
-    turn = 15.0
+    """The operator's hands. Runs on its own thread; every mutator it calls takes the table lock.
 
+    Four verbs, each of which does the random thing when given nothing. The earlier version had a
+    selected-block mode driven by `4 6 8 2 + -`, which was fewer keystrokes and completely
+    unmemorable -- and at this table the common request is not "nudge G11 five centimetres west", it
+    is "make something move so I can watch the frontend react".
+    """
     builtins.print(HELP)
     builtins.print(table.describe())
 
     while True:
         try:
-            raw = input(f"\n[{chosen}] table> ").strip()
+            raw = input("\ntable> ").strip()
         except (EOFError, KeyboardInterrupt):
             break
         if not raw:
@@ -199,67 +203,69 @@ def _run_cli(table: MockTable, loop: asyncio.AbstractEventLoop) -> None:
         parts = raw.split()
         command, arguments = parts[0].lower(), parts[1:]
         try:
-            if command in ("q", "quit", "exit"):
+            if command in ("quit", "exit", "q"):
                 break
-            elif command in ("?", "h", "help"):
+            elif command in ("help", "?", "h"):
                 builtins.print(HELP)
-            elif command in ("l", "ls", "list"):
+            elif command in ("list", "l", "ls"):
                 builtins.print(table.describe())
-            elif command == "sel":
-                chosen = table.block(arguments[0]).building_id
-            elif command == "4":
-                _report(table.move(chosen, -nudge, 0.0))
-            elif command == "6":
-                _report(table.move(chosen, nudge, 0.0))
-            elif command == "8":
-                _report(table.move(chosen, 0.0, -nudge))
-            elif command == "2":
-                _report(table.move(chosen, 0.0, nudge))
-            elif command == "+":
-                _report(table.turn(chosen, turn))
-            elif command == "-":
-                _report(table.turn(chosen, -turn))
-            elif command == "0":
-                _report(table.align(chosen))
-            elif command == "m":
-                _report(table.move(arguments[0], float(arguments[1]), float(arguments[2])))
-            elif command == "p":
-                _report(table.place(arguments[0], float(arguments[1]), float(arguments[2])))
-            elif command == "r":
-                _report(table.turn(arguments[0], float(arguments[1])))
-            elif command == "a":
-                _report(table.align(arguments[0]))
-            elif command == "off":
-                _report(table.set_on_table(arguments[0], False))
-            elif command == "on":
-                _report(table.set_on_table(arguments[0], True))
-            elif command == "s":
-                table.scatter()
-                builtins.print(table.describe())
-            elif command == "x":
+
+            elif command == "move":
+                key = arguments[0] if arguments else None
+                u = float(arguments[1]) if len(arguments) >= 3 else None
+                v = float(arguments[2]) if len(arguments) >= 3 else None
+                moved = table.move(key, u, v)
+                if not moved:
+                    builtins.print("nothing on the table to move")
+                elif len(moved) == 1:
+                    _report(moved[0], "moved")
+                else:
+                    builtins.print(f"moved {len(moved)} blocks")
+                    builtins.print(table.describe())
+
+            elif command == "turn":
+                key = arguments[0] if arguments else None
+                degrees = float(arguments[1]) if len(arguments) >= 2 else None
+                block = table.turn(key, degrees)
+                if block is None:
+                    builtins.print("nothing on the table to turn")
+                else:
+                    _report(block, "turned")
+
+            elif command == "add":
+                block, reason = table.add(arguments[0] if arguments else None)
+                _report(block, reason)
+
+            elif command == "remove":
+                block = table.remove(arguments[0] if arguments else None)
+                if block is None:
+                    builtins.print("nothing on the table to remove")
+                else:
+                    builtins.print(f"{block.building_id} (marker {block.marker_id}) is off the table")
+
+            elif command == "align":
+                _report(table.align(arguments[0]), "aligned")
+            elif command == "reset":
                 table.reset()
                 builtins.print(table.describe())
+            elif command == "motion":
+                table.set_motion(arguments[0].lower())
+                builtins.print(f"motion: {arguments[0].lower()}")
             elif command in ("still", "jitter", "drift"):
+                # The three modes also work bare, because that is what people type.
                 table.set_motion(command)
                 builtins.print(f"motion: {command}")
-            elif command == "u":
-                u = float(arguments[1]) if len(arguments) > 2 else 0.5
-                v = float(arguments[2]) if len(arguments) > 2 else 0.5
-                _report(table.add_unclaimed(int(arguments[0]), u, v))
-            elif command == "nu":
-                table.remove_unclaimed(int(arguments[0]))
-                builtins.print(f"removed unclaimed marker {arguments[0]}")
-            elif command == "c":
+            elif command == "calib":
                 visible = not table.calibration_markers_visible
                 table.set_calibration_markers_visible(visible)
                 builtins.print(f"map-calibration markers: {'on' if visible else 'OFF'}")
-            elif command == "v":
+            elif command == "verbose":
                 _console_state["verbose"] = not _console_state["verbose"]
                 builtins.print(f"snapshot dump: {'on' if _console_state['verbose'] else 'off'}")
             else:
-                builtins.print(f"unknown command {command!r} -- '?' for help")
+                builtins.print(f"unknown command {command!r} -- 'help' for the list")
         except (IndexError, ValueError) as exc:
-            builtins.print(f"bad arguments for {command!r}: {exc} -- '?' for help")
+            builtins.print(f"bad arguments for {command!r}: {exc} -- 'help' for the list")
         except KeyError as exc:
             builtins.print(exc.args[0] if exc.args else str(exc))
 
@@ -268,10 +274,11 @@ def _run_cli(table: MockTable, loop: asyncio.AbstractEventLoop) -> None:
     loop.call_soon_threadsafe(loop.stop)
 
 
-def _report(block) -> None:
+def _report(block, what_happened: str) -> None:
     builtins.print(
-        f"{block.building_id} (marker {block.marker_id}) -> u={block.u:.3f} v={block.v:.3f} "
-        f"heading={block.heading:.1f} ({block.heading_from_aligned:+.1f} from its reference)"
+        f"{block.building_id} (marker {block.marker_id}) {what_happened}: "
+        f"u={block.u:.3f} v={block.v:.3f} heading={block.heading:.1f} "
+        f"({block.heading_from_aligned:+.1f} from its reference)"
     )
 
 

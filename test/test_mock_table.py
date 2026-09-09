@@ -139,9 +139,9 @@ def test_the_calibration_quad_is_not_mirrored(table):
 
 
 def test_taking_a_block_off_the_table_stops_it_being_detected(table):
-    table.set_on_table("G11", False)
+    table.remove("G11")
     assert 18 not in table.snapshot()
-    table.set_on_table("G11", True)
+    table.add("G11")
     assert 18 in table.snapshot()
 
 
@@ -149,9 +149,63 @@ def test_an_unclaimed_marker_appears_with_no_catalog_entry(table):
     """Registration's whole subject: a block on the table that no building speaks for."""
     import server
 
-    table.add_unclaimed(42)
+    table.add("42")
     assert 42 in table.snapshot()
     assert server.physical_buildings_by_marker.get(42) is None
+
+
+def test_the_bare_verbs_pick_a_block_so_something_always_changes(table):
+    """`move` / `turn` / `remove` / `add` with no arguments are the mock's normal interface."""
+    before = table.snapshot()
+    (moved,) = table.move()
+    assert table.snapshot()[moved.marker_id][:2] != before[moved.marker_id][:2]
+
+    turned = table.turn()
+    assert turned is not None
+
+    removed = table.remove()
+    assert removed.marker_id not in table.snapshot()
+
+    restored, reason = table.add()
+    assert restored.marker_id in table.snapshot()
+    assert reason == "back on the table"
+
+
+def test_add_always_does_something_even_with_a_full_table(table):
+    """With every block already on the table there is nothing to restore, so one is invented.
+
+    `add` reporting "nothing to add" would be indistinguishable, at the prompt, from the command
+    having silently failed -- and an unclaimed marker is a useful thing to be handed anyway.
+    """
+    block, reason = table.add()
+    assert reason == "new unclaimed marker"
+    assert block.marker_id in table.snapshot()
+    # Never an id a contract has already spoken for: those are filtered out downstream, so the
+    # block would simply never reach the frontend.
+    assert block.marker_id not in mock_table.MAP_CALIBRATION_MARKER_CORNERS
+    assert block.marker_id < 200
+
+
+def test_move_all_moves_every_block(table):
+    before = table.snapshot()
+    moved = table.move("all")
+    assert len(moved) == len(table.buildings)
+    after = table.snapshot()
+    for block in table.buildings.values():
+        assert after[block.marker_id][:2] != before[block.marker_id][:2]
+
+
+def test_move_with_coordinates_puts_a_block_exactly_there(table):
+    (block,) = table.move("g11", 0.42, 0.58)
+    assert block.u == pytest.approx(0.42)
+    assert block.v == pytest.approx(0.58)
+
+
+def test_turn_by_a_named_angle_is_relative_to_where_the_block_already_is(table):
+    block = table.block("g11")
+    before = block.heading
+    table.turn("g11", 90.0)
+    assert block.heading == pytest.approx((before + 90.0 + 180.0) % 360.0 - 180.0)
 
 
 def test_a_block_can_be_named_by_building_id_or_marker_id(table):
